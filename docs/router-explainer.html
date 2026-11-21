@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Router: how it picks models and effort</title>
+<style>
+  :root {
+    --bg: #fbfaf8; --panel: #ffffff; --ink: #1d1d1f; --muted: #62605b; --line: #dedad2;
+    --accent: #b4491f; --accent-soft: #f6e4da; --blue: #2a5d9f; --blue-soft: #e1ebf7;
+    --green: #2b7a4b; --green-soft: #dff0e5; --amber: #8a6200; --amber-soft: #f8edcf;
+    --red: #a8322d; --red-soft: #f7e0de; --code: #f1eee8;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161513; --panel: #1f1e1b; --ink: #ece9e2; --muted: #a29e94; --line: #3a3833;
+      --accent: #e8855a; --accent-soft: #3a2519; --blue: #7fb0ea; --blue-soft: #1c2b3f;
+      --green: #6fcf93; --green-soft: #17301f; --amber: #e3b94f; --amber-soft: #352b10;
+      --red: #ef8d87; --red-soft: #3a1b19; --code: #2a2824;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 48px 20px 24px; max-width: 920px; margin: 0 auto; }
+  h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 8px; }
+  .lede { color: var(--muted); font-size: 1.05rem; max-width: 68ch; margin: 0; }
+  nav { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(6px); border-bottom: 1px solid var(--line); }
+  nav ul { list-style: none; margin: 0 auto; padding: 8px 20px; max-width: 920px; display: flex; gap: 4px 16px; flex-wrap: wrap; font-size: .85rem; }
+  nav a { color: var(--muted); text-decoration: none; }
+  nav a:hover, nav a:focus-visible { color: var(--accent); text-decoration: underline; }
+  main { max-width: 920px; margin: 0 auto; padding: 0 20px 80px; }
+  section { padding-top: 40px; }
+  h2 { font-size: 1.4rem; margin: 0 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  h3 { font-size: 1.05rem; margin: 24px 0 6px; }
+  p { margin: 0 0 12px; max-width: 72ch; }
+  code, .mono { font-family: var(--mono); font-size: .88em; background: var(--code); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--code); padding: 12px 14px; border-radius: 8px; overflow-x: auto; font: .85rem/1.5 var(--mono); margin: 0 0 14px; }
+  pre code { background: none; padding: 0; }
+  .grid { display: grid; gap: 12px; }
+  .g3 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .card h3 { margin-top: 0; }
+  .tag { display: inline-block; font: .78rem var(--mono); padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); }
+  .t-simple { background: var(--green-soft); color: var(--green); border-color: transparent; }
+  .t-medium { background: var(--blue-soft); color: var(--blue); border-color: transparent; }
+  .t-complex { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); background: var(--code); }
+  tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .scroll { overflow-x: auto; margin-bottom: 14px; }
+  .note { border-left: 3px solid var(--amber); background: var(--amber-soft); padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 0 0 14px; max-width: 72ch; }
+  .good { border-left-color: var(--green); background: var(--green-soft); }
+  .bad { border-left-color: var(--red); background: var(--red-soft); }
+  .muted { color: var(--muted); }
+  .small { font-size: .85rem; }
+  .hit { background: var(--accent-soft); font-weight: 600; }
+  /* flow */
+  .flow { display: flex; flex-direction: column; align-items: stretch; gap: 0; margin: 12px 0 18px; }
+  .step { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; position: relative; }
+  .step .n { display: inline-flex; width: 22px; height: 22px; align-items: center; justify-content: center; border-radius: 50%; background: var(--accent); color: #fff; font-size: .78rem; font-weight: 700; margin-right: 8px; }
+  .step b { font-size: .98rem; }
+  .step p { margin: 4px 0 0 30px; font-size: .9rem; color: var(--muted); max-width: none; }
+  .arrow { text-align: center; color: var(--muted); line-height: 1.2; font-size: 1.1rem; padding: 2px 0; }
+  .fan { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+  .fan .step { border-color: var(--blue); }
+  /* controls */
+  .ctl { display: grid; grid-template-columns: 130px 1fr 56px; gap: 10px; align-items: center; margin: 6px 0; font-size: .92rem; }
+  .ctl output { font-family: var(--mono); text-align: right; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  select { font: inherit; padding: 3px 6px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; }
+  /* bars */
+  .bars { display: grid; gap: 10px; margin: 10px 0 6px; }
+  .bar-row { display: grid; grid-template-columns: minmax(150px, 230px) 1fr; gap: 12px; align-items: center; font-size: .86rem; }
+  .bar-label small { display: block; color: var(--muted); }
+  .track { position: relative; height: 22px; background: var(--code); border-radius: 5px; }
+  .fill, .ext { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 5px; }
+  .fill { background: var(--blue); }
+  .ext { background: repeating-linear-gradient(45deg, var(--blue-soft), var(--blue-soft) 4px, var(--panel) 4px, var(--panel) 8px); border: 1px solid var(--blue); }
+  .shipped .fill { background: var(--accent); }
+  .val { position: absolute; right: 6px; top: 0; line-height: 22px; font: .78rem var(--mono); color: var(--ink); }
+  .big { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 12px 0; }
+  .big div { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .big b { display: block; font-size: 1.5rem; font-variant-numeric: tabular-nums; }
+  .big span { font-size: .8rem; color: var(--muted); }
+  footer { max-width: 920px; margin: 0 auto; padding: 0 20px 48px; color: var(--muted); font-size: .85rem; }
+  ul.tight { margin: 0 0 12px; padding-left: 20px; max-width: 72ch; }
+  ul.tight li { margin-bottom: 4px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Router: how it picks models and effort</h1>
+  <p class="lede">A Claude Code plugin that sorts each prompt into <em>simple</em>, <em>medium</em> or <em>complex</em>, then chooses which Claude model does the work, how hard it thinks, and whether anything checks the result. The goal is to spend less of your subscription without losing much accuracy.</p>
+</header>
+
+<nav aria-label="Sections">
+  <ul>
+    <li><a href="#what">1. What it does</a></li>
+    <li><a href="#flow">2. Request flow</a></li>
+    <li><a href="#classifier">3. Classifier</a></li>
+    <li><a href="#cascade">4. Cascade</a></li>
+    <li><a href="#evidence">5. Evidence</a></li>
+    <li><a href="#caveats">6. Caveats</a></li>
+  </ul>
+</nav>
+
+<main>
+
+<!-- 1 ------------------------------------------------------------------ -->
+<section id="what">
+  <h2>1. What the router does</h2>
+  <p>For every prompt you send, the router decides a <b>tier</b> (how big the job is) and a <b>band</b> (how demanding it is inside that tier). Those two choices fill in a plan: a model for each <b>role</b>, an effort level for each role, and whether a validator runs at the end.</p>
+
+  <h3>Tiers and roles (<code>TIERS</code> in <code>logic.ts</code>)</h3>
+  <div class="scroll"><table>
+    <thead><tr><th>Tier</th><th>Main (orchestrator)</th><th>Executor</th><th>Validator</th><th>Escalate</th></tr></thead>
+    <tbody>
+      <tr><td><span class="tag t-simple">simple</span></td><td>haiku</td><td>sonnet <span class="muted small">(unused: no orchestration rules are added)</span></td><td>none</td><td>none</td></tr>
+      <tr><td><span class="tag t-medium">medium</span></td><td>sonnet</td><td>haiku</td><td>opus <span class="muted small">(only with <code>#validate</code>)</span></td><td>opus</td></tr>
+      <tr><td><span class="tag t-complex">complex</span></td><td>opus</td><td>sonnet</td><td>fable <span class="muted small">(always, unless <code>#novalidate</code>)</span></td><td>opus</td></tr>
+    </tbody>
+  </table></div>
+  <ul class="tight">
+    <li><b>Main</b>: the model that talks to you. A <code>turn.step</code> hook sets its model and effort on every request.</li>
+    <li><b>Executor</b>: subagents that do the bulk work (search, edit, run commands). The orchestrator is told to delegate to them.</li>
+    <li><b>Validator</b>: one final subagent whose prompt starts with <code>[verify]</code>; it checks the result and ends with <code>VERDICT: PASS</code> or <code>VERDICT: FAIL</code>.</li>
+    <li><b>Escalate</b>: the model executors switch to after a failed first attempt (see <a href="#cascade">section 4</a>). <code>null</code> means no cascade.</li>
+  </ul>
+
+  <h3>Effort matrix (<code>EFFORT</code>)</h3>
+  <p>Tier and band pick an effort level for each role. Levels come from Anthropic's effort guidance; <code>max</code> is never used. Highlighted cells are the only ones <code>route()</code> can produce on its own. The others can still occur through the keyword fallback or a <code>#tag</code> override, which keep the band from elsewhere.</p>
+  <div class="scroll"><table id="effort-table">
+    <thead><tr><th>Tier</th><th>Band</th><th>Main</th><th>Executor</th><th>Validator</th></tr></thead>
+    <tbody></tbody>
+  </table></div>
+
+  <h3>Tags you can type in a prompt</h3>
+  <p>Tags are removed from the text before the model sees it. A tag must start the prompt or follow whitespace.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Tag</th><th>Effect</th></tr></thead>
+    <tbody>
+      <tr><td><code>#simple</code> <code>#medium</code> <code>#complex</code></td><td>Force the tier for this prompt. The band still comes from the classifier.</td></tr>
+      <tr><td><code>#validate</code></td><td>Turn the validator on. <b>Sticky</b> across later prompts. Has no effect on simple, which has no validator.</td></tr>
+      <tr><td><code>#novalidate</code></td><td>Turn the validator off. Sticky.</td></tr>
+      <tr><td><code>#autovalidate</code></td><td>Clear the sticky override; back to the default (complex only).</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- 2 ------------------------------------------------------------------ -->
+<section id="flow">
+  <h2>2. Request flow</h2>
+  <p>Everything starts in the <code>prompt.submit</code> hook and ends in the hooks that shape each model request. The state it sets (tier, band, validation, escalation) is held in the plugin and read by the later hooks.</p>
+
+  <div class="flow">
+    <div class="step"><span class="n">1</span><b>Prompt submitted</b>
+      <p>Slash commands are skipped. Otherwise the plugin starts working on the text. (At session start a separate hook starts the local Laya server if it isn't answering.)</p></div>
+    <div class="arrow">↓</div>
+    <div class="step"><span class="n">2</span><b>Parse tags</b> <code>parseTags()</code>
+      <p>Pulls out <code>#simple/#medium/#complex</code> (tier override) and <code>#validate/#novalidate/#autovalidate</code> (sticky validation override). Cleaned text continues.</p></div>
+    <div class="arrow">↓</div>
+    <div class="step"><span class="n">3</span><b>One Laya call, three questions</b> <code>classify()</code>
+      <p>First 2000 characters, sent to the local Laya server (<code>127.0.0.1:8765</code>, checkpoint <code>typed-decisions</code>). Returns <code>effort</code>, <code>question</code>, <code>repro</code>. 3 s timeout. If Laya is down, a keyword heuristic picks tier and band instead.</p></div>
+    <div class="arrow">↓</div>
+    <div class="step"><span class="n">4</span><b>Route</b> <code>route()</code>
+      <p>Applies the cut-offs to give tier + band. A tag overrides the tier. Validation is needed when the tier is complex. The escalation flag resets, and the status line shows the plan.</p></div>
+    <div class="arrow">↓</div>
+    <div class="step"><span class="n">5</span><b>Plan</b> <code>plan()</code>
+      <p><code>TIERS[tier]</code> for models, <code>EFFORT[tier][band]</code> for effort, and the validator only if <code>#validate/#novalidate</code> says so, else if the tier needs it.</p></div>
+    <div class="arrow">↓ the plan is read by these hooks while the turn runs</div>
+    <div class="fan">
+      <div class="step"><b>prompt.compose</b><p>Adds a system-prompt section (not for simple): act as orchestrator, delegate to the executor model, re-delegate once to the escalate model on <code>STATUS: FAILED</code>, and run a <code>[verify]</code> agent at the end if a validator is set.</p></div>
+      <div class="step"><b>turn.step</b><p>Main loop: model = main, effort = main effort. Subagent request: effort = validator effort if its model name matches the validator, otherwise executor effort.</p></div>
+      <div class="step"><b>agent.spawn</b><p>Picks the subagent's model: <code>[verify]</code> prompts get the validator; after an escalation executors are forced to the escalate model; otherwise the call's own model or the executor default. Appends the <code>STATUS</code> or <code>VERDICT</code> rule (not for simple).</p></div>
+      <div class="step"><b>tool.call</b><p>Watches test commands and Agent results for the free failure signals. On a failure it sets the escalation flag and adds a note to the result the orchestrator reads.</p></div>
+    </div>
+  </div>
+
+  <div class="note">One detail worth knowing: when the validator and the escalate model are the same (medium uses opus for both), the router can't tell them apart by model name alone. That's why verifier prompts are tagged <code>[verify]</code>. For effort, an escalated medium executor gets the validator's effort, which is harmless today because both are <code>medium</code> for the only medium cell <code>route()</code> produces.</div>
+</section>
+
+<!-- 3 ------------------------------------------------------------------ -->
+<section id="classifier">
+  <h2>3. The classifier</h2>
+  <p>Laya is a small local model that reads the prompt once and answers several questions about it, each independently. The router asks three, in one call (asking them one at a time gave byte-identical numbers, and one call is cheaper). It takes about 0.1 s for short prompts and about 0.65 s at the 2000-character cap.</p>
+
+  <div class="grid g3">
+    <div class="card"><h3><code>effort</code></h3><p class="small"><span class="mono">score, 0–4</span><br>"How much engineering effort does this coding request need?"</p>
+      <p class="small muted">0 answer or one command · 1 tiny edit · 2 feature or bug fix in a few files · 3 multi-file change with design decisions · 4 large refactor, migration, architecture, deep debugging</p></div>
+    <div class="card"><h3><code>question</code></h3><p class="small"><span class="mono">yes/no probability</span><br>"The user is only asking a question and wants no code changed."</p></div>
+    <div class="card"><h3><code>repro</code></h3><p class="small"><span class="mono">yes/no probability</span><br>"The request includes an error message, traceback or steps to reproduce."</p></div>
+  </div>
+
+  <h3>The rule and its cut-offs (<code>CUTS</code>)</h3>
+  <pre><code>CUTS = { question: 0.8, simple: 1.8, complex: 2.5, repro: 0.3, highBand: 3.0 }
+
+question &gt;= 0.8                        -&gt; simple / low
+effort   &lt;  1.8                        -&gt; simple / mid
+effort   &gt;= 2.5  and  repro &lt; 0.3      -&gt; complex  (band high if effort &gt;= 3.0, else mid)
+otherwise                              -&gt; medium / mid</code></pre>
+  <p>A prompt with a repro or traceback is a bug report, and bug reports are never routed to complex. Within medium the band is always <code>mid</code>, because nothing in the prompt predicted which bug fixes need a bigger model (see <a href="#evidence">evidence</a>).</p>
+
+  <h3>Try the rule</h3>
+  <p class="small muted">This is a JavaScript copy of <code>route()</code> and the plan, with the same cut-offs, so you can see where a prompt lands. It does not call Laya.</p>
+  <div class="card" id="route-demo">
+    <div class="ctl"><label for="r-effort">effort score</label><input id="r-effort" type="range" min="0" max="4" step="0.1" value="2"><output id="o-effort"></output></div>
+    <div class="ctl"><label for="r-question">question</label><input id="r-question" type="range" min="0" max="1" step="0.05" value="0.1"><output id="o-question"></output></div>
+    <div class="ctl"><label for="r-repro">repro</label><input id="r-repro" type="range" min="0" max="1" step="0.05" value="0.6"><output id="o-repro"></output></div>
+    <div class="ctl"><label for="r-tag">validation tag</label><select id="r-tag"><option value="auto">none (default)</option><option value="yes">#validate</option><option value="no">#novalidate</option></select><span></span></div>
+    <div id="route-out" aria-live="polite" style="margin-top:10px"></div>
+  </div>
+
+  <h3>Why the old questions were replaced</h3>
+  <p>The first version asked Laya for a <code>tier</code> (pick one of simple/medium/complex), a <code>band</code> and a <code>validation</code> yes/no. The eval (section 5) showed that was weak:</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Old question</th><th>What went wrong</th></tr></thead>
+    <tbody>
+      <tr><td><code>tier</code> (argmax)</td><td>Over-escalated. On real GitHub issues it sent <b>342 of 500</b> ordinary bug fixes to complex (Opus plus a Fable validator).</td></tr>
+      <tr><td><code>band</code></td><td>Close to random: <code>ls -la</code> came back high, a JWT migration low.</td></tr>
+      <tr><td><code>validation</code></td><td>Never said yes (its highest score was 0.49), so in practice only complex was validated.</td></tr>
+      <tr><td>keyword fallback</td><td>"Longer than 1200 characters means complex" was wrong. Long prompts were detailed bug reports, not hard tasks. The rule was removed.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Before and after</h3>
+  <div class="bars" id="acc-bars"></div>
+  <p class="small muted">Held-out balanced accuracy on a 30% split of the 570 labelled prompts (cut-offs fitted on the other 70%). The new figure is 0.77 ± 0.04. The <code>typed-decisions</code> checkpoint beat Laya's default checkpoint on the same held-out data (0.77 vs 0.69). Yes/no risk questions (security, data loss, concurrency) were also tried and dropped: they did not separate risky work on real issues.</p>
+</section>
+
+<!-- 4 ------------------------------------------------------------------ -->
+<section id="cascade">
+  <h2>4. The cascade</h2>
+  <p>For medium and complex prompts the router starts with a cheaper executor and moves up to Opus only after a failure. It watches for failure without paying for an extra model call.</p>
+
+  <h3>The reporting lines</h3>
+  <ul class="tight">
+    <li>Every executor prompt gets a rule appended: end with exactly one line, <code>STATUS: DONE</code> (only if a relevant test or concrete check ran and passed) or <code>STATUS: FAILED: &lt;what is wrong or unverified&gt;</code>.</li>
+    <li>Verifier prompts start with <code>[verify]</code> and end with <code>VERDICT: PASS</code> or <code>VERDICT: FAIL: &lt;issues&gt;</code>.</li>
+    <li>Only an explicit <code>FAILED</code> or <code>FAIL</code> counts. A search-only agent that never says DONE does not trigger anything.</li>
+    <li>The simple tier gets no rules and no cascade.</li>
+  </ul>
+
+  <h3>The free failure signals</h3>
+  <div class="grid g3">
+    <div class="card"><h3>1. Test command fails</h3><p class="small">A Bash call matching a known test runner (pytest, jest, cargo test, go test, npm test and others) returns an error, from any agent, during the attempt.</p></div>
+    <div class="card"><h3>2. Executor says FAILED</h3><p class="small">The Agent result contains <code>STATUS: FAILED</code>.</p></div>
+    <div class="card"><h3>3. Verifier says FAIL</h3><p class="small">The <code>[verify]</code> agent's result contains <code>VERDICT: FAIL</code>. Only runs when a validator is on.</p></div>
+  </div>
+
+  <h3>What happens on a failure</h3>
+  <ol class="tight">
+    <li>An escalation flag is set, <b>at most once per prompt</b>. It resets on the next prompt.</li>
+    <li>Every later executor for this prompt is forced to the tier's escalate model (opus), even if the call named another model.</li>
+    <li>A note is added to the failed result: delegate the fix once more to an Agent on the escalate model, pass it the failure details, and don't escalate again.</li>
+    <li>The status line shows <code>(escalated)</code>.</li>
+  </ol>
+  <div class="note">The note is only added when the Agent result is plain text or content blocks. For other result shapes the forced model in <code>agent.spawn</code> and the policy text still escalate, but the explicit note is skipped.</div>
+
+  <h3>Why not a paid Opus reviewer?</h3>
+  <div class="note bad">On SWE-bench, putting an Opus review pass on every medium task made the cascade cost <b>$462–501</b>, more than just using Opus for everything ($377). A reviewer only saves money if the failure signal is nearly free, so the shipped version uses the signals above and keeps the paid validator for complex tasks and for <code>#validate</code>.</div>
+</section>
+
+<!-- 5 ------------------------------------------------------------------ -->
+<section id="evidence">
+  <h2>5. The evidence</h2>
+  <p>Where the cut-offs and the cascade come from, all from <code>eval/</code> (rerunnable; see <code>eval/README.md</code>).</p>
+
+  <h3>The data</h3>
+  <ul class="tight">
+    <li><b>570 labelled prompts</b>: 500 SWE-bench Verified issues (labelled medium, with human difficulty labels), 40 CodeAlpaca prompts plus 10 quick repo asks (simple), and 20 design/migration asks (complex). The 10 and 20 were hand-written.</li>
+    <li><b>Real cost and pass/fail</b> for Claude 4.5 Haiku, Sonnet and Opus on all 500 issues, from public SWE-bench runs (mini-swe-agent, effort high, one attempt each).</li>
+  </ul>
+  <div class="scroll"><table>
+    <thead><tr><th>Single model, no router</th><th class="num">Solved</th><th class="num">Cost (500 issues)</th></tr></thead>
+    <tbody>
+      <tr><td>Haiku</td><td class="num">66.6%</td><td class="num">$165</td></tr>
+      <tr><td>Sonnet</td><td class="num">71.4%</td><td class="num">$329</td></tr>
+      <tr><td>Opus</td><td class="num">76.8%</td><td class="num">$377</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Key findings</h3>
+  <ul class="tight">
+    <li>Laya separates trivial asks from real work well (AUC above 0.9) and design work from bug fixes reasonably (about 0.8).</li>
+    <li><b>Among real bug fixes, nothing in the prompt predicts which ones Haiku fails</b> (AUC 0.47–0.56, close to a coin flip). Even human difficulty labels route no better than random. So routing within the medium tier prompt by prompt is pointless, and the router doesn't try.</li>
+    <li>Prompt length points the wrong way: long prompts are detailed bug reports, not hard tasks.</li>
+    <li>Sonnet costs about 87% of Opus per task here and solves fewer (71.4% vs 76.8%).</li>
+    <li>Haiku is 66.6% solved at 44% of Opus's cost. Escalating Haiku to Opus only on a <em>detected</em> failure would reach 79% at $339 (vs $377 for Opus) if detection were perfect. How much of that a free signal captures is the open question.</li>
+  </ul>
+
+  <h3>Cost on SWE-bench</h3>
+  <p class="small muted">Totals over the 500 issues, at API prices. A review pass is assumed to cost 30% of an Opus solve. "Old router" is the first version of this router.</p>
+  <div class="bars" id="cost-bars"></div>
+
+  <h3>Interactive: what does the failure catch rate change?</h3>
+  <p>The shipped cascade only escalates failures its free signals notice. The handoff reports it as a range because that catch rate is <b>not measured</b>: 40–80% of Haiku's failures caught gives 71.4–76.2% solved at $259–327. Drag the slider to see where in that range you'd land.</p>
+  <div class="note">Only the two endpoints are from <code>HANDOFF.md</code>. I read the low end of each range as the 40% case and the high end as the 80% case (more caught failures means more solved, and more Opus re-runs). Everything between is a straight line between those endpoints, an interpolation, not a measurement. The "% cheaper" and "points below Opus" figures are subtraction from the table numbers.</div>
+  <div class="card">
+    <div class="ctl"><label for="catch">failure catch rate</label><input id="catch" type="range" min="40" max="80" step="1" value="60"><output id="o-catch"></output></div>
+    <div class="big" aria-live="polite">
+      <div><b id="x-solved"></b><span>solved (estimate)</span></div>
+      <div><b id="x-cost"></b><span>cost, 500 issues (estimate)</span></div>
+      <div><b id="x-vs-old"></b><span>cheaper than old router ($450)</span></div>
+      <div><b id="x-vs-opus"></b><span>solve rate vs always-Opus (76.8%)</span></div>
+    </div>
+    <div class="bars" id="slider-bars"></div>
+  </div>
+</section>
+
+<!-- 6 ------------------------------------------------------------------ -->
+<section id="caveats">
+  <h2>6. Caveats and open questions</h2>
+  <ul class="tight">
+    <li><b>The catch rate is unmeasured.</b> The whole cost and solve-rate range depends on how many Haiku failures the free signals actually catch. Logging escalations in real use is the plan for pinning it down.</li>
+    <li><b>The data is from 4.5-generation models.</b> Haiku, Sonnet and Opus 4.5 at API prices. The effort guidance in the matrix is for the 5.5 models, and <code>TIERS</code> uses short names (haiku, sonnet, opus, fable) that resolve to whatever the current models are. No measurement of the newer models is included. The Fable validator was priced as Opus in the cost model.</li>
+    <li><b>The eval is a single agent.</b> The SWE-bench runs used one bash-only agent, with no orchestrator and executors. The router's orchestrator-plus-executor structure was not measured.</li>
+    <li><b>One run per task.</b> Results are noisy.</li>
+    <li><b>The complex tier is thin.</b> Only 20 complex examples, and they were written by hand, not collected.</li>
+    <li><b>Not yet tested inside Claude Code.</b> The hook flow was tested with a fake host only. Things not yet confirmed live include whether subagent test commands reach the <code>tool.call</code> hook, the shape of Agent results, and whether the Laya auto-start works from the session hook.</li>
+    <li><b>Laya must be running.</b> If it isn't, the keyword fallback decides, which is cruder. Validation then still applies to complex only.</li>
+    <li><b>Within-medium difficulty is not routed.</b> By design, every medium prompt gets the same band, since no signal was found.</li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  Written from <code>eval/HANDOFF.md</code>, <code>logic.ts</code>, <code>hooks/index.ts</code> and <code>eval/README.md</code>. If those change, this page does not update itself. No network requests; everything is inline.
+</footer>
+
+<script>
+(function () {
+  // ---- copies of the router's tables (logic.ts) ----
+  var TIERS = {
+    simple:  { main: 'haiku',  executor: 'sonnet', validator: null,    escalate: null },
+    medium:  { main: 'sonnet', executor: 'haiku',  validator: 'opus',  escalate: 'opus' },
+    complex: { main: 'opus',   executor: 'sonnet', validator: 'fable', escalate: 'opus' }
+  };
+  var EFFORT = {
+    simple:  { low: ['low','low','low'],         mid: ['medium','medium','medium'], high: ['high','high','high'] },
+    medium:  { low: ['low','low','medium'],      mid: ['medium','medium','medium'], high: ['high','high','high'] },
+    complex: { low: ['medium','medium','high'],  mid: ['high','high','high'],        high: ['xhigh','high','xhigh'] }
+  };
+  var CUTS = { question: 0.8, simple: 1.8, complex: 2.5, repro: 0.3, highBand: 3.0 };
+  var REACHABLE = { 'simple/low': 1, 'simple/mid': 1, 'medium/mid': 1, 'complex/mid': 1, 'complex/high': 1 };
+
+  function route(a) {
+    if (a.question >= CUTS.question) return { tier: 'simple', band: 'low' };
+    if (a.effort < CUTS.simple) return { tier: 'simple', band: 'mid' };
+    if (a.effort >= CUTS.complex && a.repro < CUTS.repro) return { tier: 'complex', band: a.effort >= CUTS.highBand ? 'high' : 'mid' };
+    return { tier: 'medium', band: 'mid' };
+  }
+  function $(id) { return document.getElementById(id); }
+  function el(tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
+
+  // ---- effort table ----
+  var tb = document.querySelector('#effort-table tbody');
+  ['simple', 'medium', 'complex'].forEach(function (t) {
+    ['low', 'mid', 'high'].forEach(function (b, i) {
+      var r = EFFORT[t][b], tr = document.createElement('tr');
+      if (REACHABLE[t + '/' + b]) tr.className = 'hit';
+      tr.innerHTML = (i === 0 ? '<td rowspan="3"><span class="tag t-' + t + '">' + t + '</span></td>' : '') +
+        '<td>' + b + '</td><td>' + r[0] + '</td><td>' + r[1] + '</td><td>' + r[2] + '</td>';
+      tb.appendChild(tr);
+    });
+  });
+
+  // ---- route demo ----
+  function demo() {
+    var a = { effort: +$('r-effort').value, question: +$('r-question').value, repro: +$('r-repro').value };
+    $('o-effort').textContent = a.effort.toFixed(1);
+    $('o-question').textContent = a.question.toFixed(2);
+    $('o-repro').textContent = a.repro.toFixed(2);
+    var r = route(a), T = TIERS[r.tier], E = EFFORT[r.tier][r.band], tag = $('r-tag').value;
+    var forced = tag === 'yes' ? true : tag === 'no' ? false : null;
+    var needsVal = r.tier === 'complex';
+    var val = (forced === null ? needsVal : forced) ? T.validator : null;
+    var why;
+    if (a.question >= CUTS.question) why = 'question ≥ ' + CUTS.question + ', so it is only a question.';
+    else if (a.effort < CUTS.simple) why = 'effort < ' + CUTS.simple + ', so it is small.';
+    else if (a.effort >= CUTS.complex && a.repro < CUTS.repro) why = 'effort ≥ ' + CUTS.complex + ' and repro < ' + CUTS.repro + ', so it is design work, not a bug report' + (a.effort >= CUTS.highBand ? '; effort ≥ ' + CUTS.highBand + ' makes the band high.' : '.');
+    else why = a.effort >= CUTS.complex ? 'effort is high but repro ≥ ' + CUTS.repro + ' (it looks like a bug report), so it stays medium.' : 'effort is between ' + CUTS.simple + ' and ' + CUTS.complex + ', so ordinary work.';
+    var lines = [
+      '<b><span class="tag t-' + r.tier + '">' + r.tier + '</span> / ' + r.band + '</b> <span class="muted small">' + why + '</span>',
+      'main: <code>' + T.main + ':' + E[0] + '</code>' + (r.tier === 'simple' ? '' : ' &nbsp; executor: <code>' + T.executor + ':' + E[1] + '</code> &nbsp; escalate: <code>' + T.escalate + '</code>'),
+      'validator: ' + (val ? '<code>' + val + ':' + E[2] + '</code>' : '<span class="muted">off</span>') +
+        (r.tier === 'simple' && forced ? ' <span class="muted small">(#validate does nothing on simple)</span>' : '')
+    ];
+    $('route-out').innerHTML = lines.map(function (l) { return '<div>' + l + '</div>'; }).join('');
+  }
+  ['r-effort', 'r-question', 'r-repro', 'r-tag'].forEach(function (id) { $(id).addEventListener('input', demo); });
+  demo();
+
+  // ---- generic bar row ----
+  function bar(container, label, sub, lo, hi, max, cls, valText) {
+    var row = el('div', 'bar-row ' + (cls || ''));
+    var l = el('div', 'bar-label', label + (sub ? '<small>' + sub + '</small>' : ''));
+    var tr = el('div', 'track');
+    var ext = el('div', 'ext'); ext.style.width = (hi / max * 100) + '%'; if (hi === lo) ext.style.display = 'none';
+    var f = el('div', 'fill'); f.style.width = (lo / max * 100) + '%';
+    tr.appendChild(ext); tr.appendChild(f); tr.appendChild(el('span', 'val', valText));
+    row.appendChild(l); row.appendChild(tr); container.appendChild(row);
+    return { ext: ext, fill: f, val: tr.lastChild, sub: l.querySelector('small') };
+  }
+
+  // ---- accuracy bars ----
+  var ab = $('acc-bars');
+  bar(ab, 'Old: tier argmax', 'balanced accuracy', 0.49, 0.49, 1, '', '0.49');
+  bar(ab, 'New: three questions + rule', 'balanced accuracy, ±0.04', 0.77, 0.77, 1, 'shipped', '0.77');
+
+  // ---- cost bars ----
+  var MAX = 520;
+  var rows = [
+    ['Old router', '75.8% solved', 450, 450],
+    ['Always Opus', '76.8% solved', 377, 377],
+    ['New classifier, medium → Sonnet', '71.2% solved', 329, 329],
+    ['New + cascade, paid Opus reviewer', '73.6–78.8% solved', 462, 501]
+  ];
+  var cb = $('cost-bars');
+  rows.forEach(function (r) { bar(cb, r[0], r[1], r[2], r[3], MAX, '', r[2] === r[3] ? '$' + r[2] : '$' + r[2] + '–' + r[3]); });
+  var shipped = bar(cb, 'New + cascade, free signals (shipped)', '71.4–76.2% solved', 259, 327, MAX, 'shipped', '$259–327');
+  $('cost-bars').insertAdjacentHTML('afterend', '<p class="small muted">Hatched = the range of the estimate. Shipped is 27–43% cheaper than the old router.</p>');
+
+  // ---- slider ----
+  var sb = $('slider-bars');
+  var s1 = bar(sb, 'Old router', '75.8% solved', 450, 450, MAX, '', '$450');
+  var s2 = bar(sb, 'Always Opus', '76.8% solved', 377, 377, MAX, '', '$377');
+  var s3 = bar(sb, 'Shipped cascade', '', 259, 259, MAX, 'shipped', '');
+  function slide() {
+    var c = +$('catch').value, t = (c - 40) / 40;
+    var solved = 71.4 + t * (76.2 - 71.4), cost = 259 + t * (327 - 259);
+    $('o-catch').textContent = c + '%';
+    $('x-solved').textContent = solved.toFixed(1) + '%';
+    $('x-cost').textContent = '$' + Math.round(cost);
+    $('x-vs-old').textContent = Math.round((1 - cost / 450) * 100) + '%';
+    var d = 76.8 - solved;
+    $('x-vs-opus').textContent = d.toFixed(1) + ' pts lower';
+    s3.fill.style.width = (cost / MAX * 100) + '%';
+    s3.val.textContent = '$' + Math.round(cost);
+    s3.sub.textContent = solved.toFixed(1) + '% solved (estimate)';
+  }
+  $('catch').addEventListener('input', slide);
+  slide();
+})();
+</script>
+</body>
+</html>

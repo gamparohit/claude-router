@@ -1,0 +1,11 @@
+{
+  "name": "claude-router",
+  "owner": { "name": "gamparohit" },
+  "plugins": [
+    {
+      "name": "router",
+      "source": "./",
+      "description": "Classify each prompt as simple/medium/complex and route Claude models and effort to save subscription usage."
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "name": "router",
+  "version": "0.1.0",
+  "description": "Classify each prompt as simple/medium/complex and route Claude models and effort to save subscription usage.",
+  "license": "MIT",
+  "author": { "name": "gamparohit" }
+}
