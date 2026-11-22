@@ -1,7 +1,7 @@
 import type { Register } from 'claude-code'
 import {
-  EFFORT, LAYA_MODEL, LAYA_QUESTIONS, STATUS_RULE, TIERS, VERDICT_RULE, executorFailed, heuristic, heuristicBand,
-  heuristicNeedsValidation, isTestCommand, isVerifyPrompt, parseTags, route, validatorFailed, type Band, type Tier,
+  DEFAULT_EVALUATOR, EFFORT, EVALUATORS, HAIKU_SYSTEM, LAYA_QUESTIONS, STATUS_RULE, TIERS, VERDICT_RULE, executorFailed, heuristic, heuristicBand,
+  heuristicNeedsValidation, isTestCommand, isVerifyPrompt, parseHaikuAnswers, parseTags, route, validatorFailed, type Band, type Evaluator, type Tier,
 } from '../logic'
 
 export const register: Register = on => {
@@ -9,6 +9,7 @@ export const register: Register = on => {
   let band: Band = 'low'
   let needsVal = false // Laya's call for this prompt
   let forced: boolean | null = null // sticky override: #validate / #novalidate, #autovalidate clears
+  let evaluator: Evaluator = DEFAULT_EVALUATOR // sticky: #laya / #clef / #haiku
   let escalated = false // this prompt's cheap attempt failed; executors now run on TIERS[tier].escalate
   let lastTest: boolean | undefined // did the most recent test command fail (undefined = none ran)
 
@@ -16,11 +17,13 @@ export const register: Register = on => {
   const executorModel = () => (escalated && plan().escalate) || plan().executor
   const statusText = () => {
     const p = plan()
-    return (`router: ${tier}/${band} · ${p.main}:${p.effort.main}${tier === 'simple' ? '' : ' → ' + executorModel() + ':' + p.effort.executor}${escalated ? ' (escalated)' : ''} · val ${p.validator ? p.validator + ':' + p.effort.validator : 'off'}`)
+    return (`router[${evaluator}]: ${tier}/${band} · ${p.main}:${p.effort.main}${tier === 'simple' ? '' : ' → ' + executorModel() + ':' + p.effort.executor}${escalated ? ' (escalated)' : ''} · val ${p.validator ? p.validator + ':' + p.effort.validator : 'off'}`)
   }
 
-  // Start the local Laya server in the background if it isn't answering.
+  // Start the local Laya server in the background if it is the default evaluator and isn't answering.
+  // (For #laya / #clef on top of another default, start ./serve.sh or ./serve-clef.sh yourself.)
   on('session.start', async ($, e, next) => {
+    if (DEFAULT_EVALUATOR !== 'laya') return next(e)
     try {
       const up = await $.process.run(['curl', '-s', '-m', '1', `${LAYA}/health`], { timeoutMs: 2000 })
       if (!up.stdout) await $.process.run(['sh', '-c', `nohup "${$.plugin.root}/serve.sh" >/dev/null 2>&1 </dev/null &`], { timeoutMs: 3000 })
@@ -32,7 +35,8 @@ export const register: Register = on => {
     if (e.command) return next(e)
     const tags = parseTags(e.text)
     if (tags.validate !== undefined) forced = tags.validate
-    const c = await classify($, tags.text)
+    if (tags.evaluator) evaluator = tags.evaluator
+    const c = await classify($, tags.text, evaluator)
     tier = tags.tier ?? c.tier
     band = c.band
     needsVal = c.needsVal
@@ -113,17 +117,27 @@ function appendNote(ran: any, note: string) {
 // Laya (local, ./serve.sh) answers three questions in one call (~0.1s short, ~0.65s at 2000 chars);
 // heuristic if the server is down. Validation: complex always, medium only via #validate. Laya's
 // yes/no risk questions did not separate risky work on real issues (eval/README.md), so none is asked.
-async function classify($: any, text: string): Promise<{ tier: Tier; band: Band; needsVal: boolean }> {
+async function classify($: any, text: string, evaluator: Evaluator): Promise<{ tier: Tier; band: Band; needsVal: boolean }> {
+  const ev = EVALUATORS[evaluator]
+  if (evaluator === 'haiku') {
+    try {
+      const r = await $.model.complete({ model: ev.model, system: HAIKU_SYSTEM, prompt: `<request>\n${text.slice(0, 2000)}\n</request>`, maxTokens: 200, timeoutMs: ev.timeoutSec * 1000 })
+      const a = r.isAnswered ? parseHaikuAnswers(r.text) : undefined
+      if (a) { const { tier, band } = route(a, ev.cuts); return { tier, band, needsVal: tier === 'complex' } }
+    } catch {}
+    const tier = heuristic(text), band = heuristicBand(text)
+    return { tier, band, needsVal: heuristicNeedsValidation(tier, band) }
+  }
   try {
     const r = await $.process.run(
-      ['curl', '-s', '-m', '3', `${LAYA}/v1/systemone`, '-H', 'content-type: application/json', '-d',
-        JSON.stringify({ model: LAYA_MODEL, state: { body: text.slice(0, 2000) }, questions: LAYA_QUESTIONS })],
-      { timeoutMs: 4000 },
+      ['curl', '-s', '-m', String(ev.timeoutSec), `${ev.url}/v1/systemone`, '-H', 'content-type: application/json', '-d',
+        JSON.stringify({ model: ev.model, state: { body: text.slice(0, 2000) }, questions: LAYA_QUESTIONS })],
+      { timeoutMs: (ev.timeoutSec + 1) * 1000 },
     )
     const a = JSON.parse(r.stdout).answers
     const effort = Number(a?.effort?.score), question = Number(a?.question?.noul), repro = Number(a?.repro?.noul)
     if ([effort, question, repro].every(Number.isFinite)) {
-      const { tier, band } = route({ effort, question, repro })
+      const { tier, band } = route({ effort, question, repro }, ev.cuts)
       return { tier, band, needsVal: tier === 'complex' }
     }
   } catch {}
