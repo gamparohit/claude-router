@@ -113,6 +113,16 @@ test('policy section for medium and complex', async ($, on) => {
   expect(last(c.sections).text).not.toContain('[verify]') // medium: validator only with #validate
 })
 
+test('medium: haiku runs the main loop and the executors until a failure is caught', async ($, on) => {
+  const h = host(on, MEDIUM)
+  await submit($, 'parser crashes on empty input')
+  await step($)
+  expect(last(h.steps).model).toBe('haiku')
+  await spawn($)
+  expect(last(h.spawns).model).toBe('haiku')
+  expect(last(h.status)).toContain('haiku:medium → haiku:medium')
+})
+
 test('STATUS: FAILED escalates once: note, status, later executors forced to the escalate model', async ($, on) => {
   const h = host(on, MEDIUM)
   await submit($, 'parser crashes on empty input')

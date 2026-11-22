@@ -42,6 +42,8 @@ Clef needs Apple Silicon. Haiku and Laya also work on Intel Macs, though Laya on
 
 On 500 real SWE-bench issues (Claude 4.5 models, API prices, a single agent), the router costs 13–32% less than always using Opus, and solves 0.6–5.6 points fewer. The range depends on how many failed cheap attempts the router catches, which has not been measured yet. Against always using Sonnet the saving is 1–22%. All three evaluators give about the same savings, because almost all of that data is one kind of task (bug fixes). Details are in `eval/HANDOFF.md` and `eval/savings.mjs`.
 
+Those figures price a cheap Haiku attempt followed by an Opus retry when a failure is caught, with no orchestrator on top. The plugin's medium tier runs a Haiku main loop over Haiku subagents, with Opus taking over after a failure. The cost of that orchestration is not in the data, so expect real savings to be lower than the figures above. An earlier version put Sonnet in charge of the medium tier; in the same data Sonnet cost 87% of what Opus did per task and solved fewer, which left little to save.
+
 ## Using it
 
 Add tags anywhere in a prompt (they are removed before the model sees it):

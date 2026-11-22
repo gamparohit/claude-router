@@ -60,7 +60,7 @@ test('haiku reply parsing', () => {
 
 test('tables', () => {
   expect(TIERS.simple.main).toBe('haiku')
-  expect(TIERS.medium.escalate).toBe('opus')
+  expect(TIERS.medium).toEqual({ main: 'haiku', executor: 'haiku', validator: 'opus', escalate: 'opus' })
   expect(EFFORT.complex.high.validator).toBe('xhigh')
   expect(DEFAULT_EVALUATOR).toBe('haiku')
 })

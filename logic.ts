@@ -8,7 +8,11 @@ export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 // fails, or the validator says VERDICT: FAIL, executors for the rest of the prompt use `escalate`.
 export const TIERS: Record<Tier, { main: string; executor: string; validator: string | null; escalate: string | null }> = {
   simple: { main: 'haiku', executor: 'sonnet', validator: null, escalate: null },
-  medium: { main: 'sonnet', executor: 'haiku', validator: 'opus', escalate: 'opus' },
+  // medium is where almost all real work lands. On 500 SWE-bench issues (Claude 4.5, single agent) Sonnet cost 87% of
+  // Opus per task and solved fewer (71.4% vs 76.8%), so a Sonnet main loop spent most of what routing was meant to save.
+  // Haiku first with Opus after a caught failure is the design eval/savings.mjs prices. The Haiku-over-Haiku
+  // orchestration itself is not in that data: its overhead and any lift are unmeasured.
+  medium: { main: 'haiku', executor: 'haiku', validator: 'opus', escalate: 'opus' },
   complex: { main: 'opus', executor: 'sonnet', validator: 'fable', escalate: 'opus' },
 }
 
@@ -81,7 +85,7 @@ export const EFFORT: Record<Tier, Record<Band, Roles>> = {
     mid: { main: 'medium', executor: 'medium', validator: 'medium' },
     high: { main: 'high', executor: 'high', validator: 'high' },
   },
-  medium: { // sonnet orchestrates, haiku executes, opus validates
+  medium: { // haiku orchestrates, haiku executes, opus takes over after a failure (and validates with #validate)
     low: { main: 'low', executor: 'low', validator: 'medium' },
     mid: { main: 'medium', executor: 'medium', validator: 'medium' },
     high: { main: 'high', executor: 'high', validator: 'high' },
