@@ -1,0 +1,141 @@
+// Drives the hooks through the engine's test kit. Run with: claude plugin test .
+// Nothing real runs beneath a test: every model call, curl call and tool result below is a stub, so these
+// prove the hooks handle the shapes fed to them, not that Claude Code sends those shapes.
+import { expect, test } from 'claude-code/testing'
+
+const reply = (effort: number[], question = 0, repro = 0) => JSON.stringify({ effort, question, repro })
+const COMPLEX = reply([0, 0, 0, 0.1, 0.9]), MEDIUM = reply([0, 0, 1, 0, 0], 0, 0.9), SIMPLE = reply([1, 0, 0, 0, 0], 0.9)
+const DONE = { result: 'did it\nSTATUS: DONE' }, FAILED = { result: 'did stuff\nSTATUS: FAILED: 2 tests red' }
+
+// Stand-in for the engine. `h` holds what the stubs answer (tests change it) and what they saw.
+function host(on: any, haiku: string | null = COMPLEX) {
+  const h: any = { haiku, agent: DONE, bash: { result: '', isError: false }, laya: '', status: [], steps: [], spawns: [], completes: [], runs: [], prompts: [] }
+  on('model.complete', (_: any, e: any) => { h.completes.push(e); return { value: h.haiku === null ? { isAnswered: false, reason: 'api-error' } : { isAnswered: true, text: h.haiku, usage: {} } } })
+  on('process.run', (_: any, e: any) => { h.runs.push(e); return { value: { exitCode: 0, stdout: h.laya, stderr: '' } } })
+  on('ui.status', (_: any, e: any) => { h.status.push(JSON.stringify(e)); return { value: {} } })
+  on('prompt.submit', (_: any, e: any) => { h.prompts.push(e); return { text: e.text } })
+  on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'x', scope: 'shared' }] }))
+  on('turn.step', async function* (_: any, e: any) { h.steps.push(e); return { turnId: 't', index: 0, answer: '', toolUses: [], stopReason: 'end_turn', usage: null } })
+  on('agent.spawn', (_: any, e: any) => { h.spawns.push(e); return { model: e.model } })
+  on('tool.call', async (_: any, e: any) => (e.tool === 'Bash' ? h.bash : typeof h.agent === 'function' ? h.agent() : h.agent))
+  return h
+}
+const submit = ($: any, text: string, extra = {}) => $.prompt.submit({ text, ...extra })
+const step = async ($: any, extra = {}) => { for await (const _ of $.turn.step({ turnId: 't', index: 0, model: 'sonnet', messageCount: 1, ...extra })) { /* drain */ } }
+const spawn = ($: any, extra = {}) => $.agent.spawn({ tool_use_id: 'x', prompt: 'fix it', description: 'd', subagentType: 'general-purpose', provider: { plugin: 'engine', tier: 'core' }, parentModel: 'opus', ...extra })
+const agent = ($: any, prompt = 'fix it') => $.tool.call({ tool: 'Agent', prompt, description: 'd' })
+const last = (a: any[]) => a[a.length - 1]
+
+test('haiku evaluator sets the tier and the status line', async ($, on) => {
+  const h = host(on)
+  await submit($, 'redo the storage layer')
+  expect(h.completes.length).toBe(1)
+  expect(h.completes[0].model).toBe('haiku')
+  expect(last(h.status)).toContain('router[haiku]: complex/high')
+  expect(last(h.status)).toContain('opus')
+})
+
+test('evaluator down: keyword fallback', async ($, on) => {
+  const h = host(on, null)
+  await submit($, 'what does ls -la do?')
+  expect(last(h.status)).toContain('simple')
+  h.haiku = 'sorry, no' // answered, but not the JSON asked for
+  await submit($, 'redesign the auth architecture')
+  expect(last(h.status)).toContain('complex')
+})
+
+test('#laya asks the local server through curl', async ($, on) => {
+  const h = host(on)
+  h.laya = JSON.stringify({ answers: { effort: { score: 2.1 }, question: { noul: 0.1 }, repro: { noul: 0.8 } } })
+  await submit($, '#laya parser crashes on empty input, traceback below')
+  expect(h.completes.length).toBe(0)
+  expect(JSON.stringify(h.runs[0])).toContain('127.0.0.1:8765/v1/systemone')
+  expect(last(h.status)).toContain('router[laya]: medium/mid')
+})
+
+test('tags force the tier and are stripped; slash commands pass through', async ($, on) => {
+  const h = host(on, SIMPLE)
+  await submit($, '#complex tidy the readme')
+  expect(last(h.prompts).text).toBe('tidy the readme')
+  expect(last(h.status)).toContain('complex')
+  const n = h.status.length
+  await submit($, '/help', { command: { name: 'help', args: '' } })
+  expect(last(h.prompts).text).toBe('/help')
+  expect(h.status.length).toBe(n)
+})
+
+test('turn.step: main loop gets the tier model and effort; a subagent keeps its model', async ($, on) => {
+  const h = host(on)
+  await submit($, 'redo the storage layer')
+  await step($)
+  expect(last(h.steps).model).toBe('opus')
+  expect(last(h.steps).effort).toBe('xhigh')
+  await step($, { agentId: 'a1', model: 'claude-sonnet-5-5' })
+  expect(last(h.steps).model).toBe('claude-sonnet-5-5')
+  expect(last(h.steps).effort).toBe('high') // executor effort for complex/high
+  await step($, { agentId: 'a2', model: 'claude-fable-5-2' })
+  expect(last(h.steps).effort).toBe('xhigh') // validator effort
+})
+
+test('agent.spawn: executor default, explicit model kept, verifier gets the validator', async ($, on) => {
+  const h = host(on)
+  await submit($, 'redo the storage layer')
+  await spawn($)
+  expect(last(h.spawns).model).toBe('sonnet')
+  expect(last(h.spawns).prompt).toContain('STATUS: DONE')
+  await spawn($, { model: 'haiku' })
+  expect(last(h.spawns).model).toBe('haiku')
+  await spawn($, { prompt: '[verify] check the diff' })
+  expect(last(h.spawns).model).toBe('fable')
+  expect(last(h.spawns).prompt).toContain('VERDICT: PASS')
+})
+
+test('simple tier: no rules, no policy section, no cascade', async ($, on) => {
+  const h = host(on, SIMPLE)
+  await submit($, 'what is a monad?')
+  await spawn($)
+  expect(last(h.spawns).prompt).toBe('fix it')
+  h.agent = FAILED
+  expect(JSON.stringify(await agent($))).not.toContain('[router]')
+  const c: any = await $.prompt.compose({ model: 'haiku', promptModel: 'haiku', surfaces: [], tools: [], outputStyle: null, traits: [] })
+  expect(c.sections.length).toBe(1)
+})
+
+test('policy section for medium and complex', async ($, on) => {
+  host(on, MEDIUM)
+  await submit($, 'parser crashes on empty input')
+  const c: any = await $.prompt.compose({ model: 'sonnet', promptModel: 'sonnet', surfaces: [], tools: [], outputStyle: null, traits: [] })
+  expect(last(c.sections).id).toBe('router:policy')
+  expect(last(c.sections).text).toContain('STATUS: FAILED')
+  expect(last(c.sections).text).not.toContain('[verify]') // medium: validator only with #validate
+})
+
+test('STATUS: FAILED escalates once: note, status, later executors forced to the escalate model', async ($, on) => {
+  const h = host(on, MEDIUM)
+  await submit($, 'parser crashes on empty input')
+  expect(JSON.stringify(await agent($))).not.toContain('[router]')
+  h.agent = FAILED
+  expect(JSON.stringify(await agent($))).toContain('Agent with model \\"opus\\"')
+  expect(last(h.status)).toContain('(escalated)')
+  await spawn($, { model: 'haiku' })
+  expect(last(h.spawns).model).toBe('opus')
+  expect(JSON.stringify(await agent($))).not.toContain('[router]') // at most once per prompt
+  await submit($, 'another bug: the lexer drops the last token')
+  expect(last(h.status)).not.toContain('(escalated)') // resets on the next prompt
+})
+
+test('a failing test command during the attempt escalates; a passing one does not', async ($, on) => {
+  const h = host(on, MEDIUM)
+  await submit($, 'parser crashes on empty input')
+  h.agent = async () => { await $.tool.call({ tool: 'Bash', command: 'npm test' }); return DONE }
+  expect(JSON.stringify(await agent($))).not.toContain('[router]')
+  h.bash = { result: '1 failed', isError: true }
+  expect(JSON.stringify(await agent($))).toContain('[router]')
+})
+
+test('VERDICT: FAIL from the verifier escalates', async ($, on) => {
+  const h = host(on)
+  await submit($, 'redo the storage layer')
+  h.agent = { result: 'looked\nVERDICT: FAIL: race in the writer' }
+  expect(JSON.stringify(await agent($, '[verify] check the diff'))).toContain('[router]')
+})

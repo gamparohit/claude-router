@@ -57,7 +57,7 @@ Defaults live in `logic.ts` (`TIERS`, `EFFORT`, `EVALUATORS`, `DEFAULT_EVALUATOR
 
 ## Status
 
-Early. The classifier rules and cost estimates come from an evaluation on SWE-bench Verified with Claude 4.5 models. The hooks were tested with a fake host and have not yet been verified in a live Claude Code session; in particular the Haiku evaluator's model call has not run inside Claude Code. Please report what you see.
+Early. The classifier rules and cost estimates come from an evaluation on SWE-bench Verified with Claude 4.5 models. The hooks are covered by tests that run against Claude Code's plugin test kit (`claude plugin test .`), where every model call and tool result is a stub. They have not yet been verified in a live Claude Code session; in particular the Haiku evaluator's model call has not run inside Claude Code. Please report what you see.
 
 The SWE-bench data used by `eval/` is not included; see `eval/README.md`.
 
