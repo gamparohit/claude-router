@@ -1,7 +1,7 @@
 import type { Register } from 'claude-code'
 import {
-  DEFAULT_EVALUATOR, EFFORT, EVALUATORS, HAIKU_SYSTEM, LAYA_QUESTIONS, STATUS_RULE, TIERS, VERDICT_RULE, executorDone, executorFailed, failureSignal, heuristic, heuristicBand,
-  isFollowUp, isTestCommand, isVerifyPrompt, newLogRecord, parseHaikuAnswers, parseTags, ratchet, route, type Band, type Evaluator, type LogRecord, type Tier,
+  EFFORT, EVALUATOR_MODEL, EVALUATOR_TIMEOUT_SEC, HAIKU_SYSTEM, STATUS_RULE, TIERS, VERDICT_RULE, executorDone, executorFailed, failureSignal, heuristic, heuristicBand,
+  isFollowUp, isTestCommand, isVerifyPrompt, newLogRecord, parseHaikuAnswers, parseTags, ratchet, route, type Band, type LogRecord, type Tier,
 } from '../logic'
 
 export const register: Register = on => {
@@ -9,7 +9,6 @@ export const register: Register = on => {
   let band: Band = 'low'
   let needsVal = false // does this prompt's tier get a validator by default
   let forced: boolean | null = null // sticky override: #validate / #novalidate, #autovalidate clears
-  let evaluator: Evaluator = DEFAULT_EVALUATOR // sticky: #laya / #clef / #haiku
   let escalated = false // this prompt's cheap attempt failed; executors now run on TIERS[tier].escalate
   let lastTest: boolean | undefined // did the most recent test command fail (undefined = none ran)
   let routed = false // has this session routed a prompt yet (reset on /clear)
@@ -21,31 +20,19 @@ export const register: Register = on => {
   const executorModel = () => (escalated && plan().escalate) || plan().executor
   const statusText = () => {
     const p = plan()
-    return (`router[${evaluator}]: ${tier}/${band}${kept ? ' (kept)' : ''} · ${p.main}:${p.effort.main}${tier === 'simple' ? '' : ' → ' + executorModel() + ':' + p.effort.executor}${escalated ? ' (escalated)' : ''} · val ${p.validator ? p.validator + ':' + p.effort.validator : 'off'}`)
+    return (`router: ${tier}/${band}${kept ? ' (kept)' : ''} · ${p.main}:${p.effort.main}${tier === 'simple' ? '' : ' → ' + executorModel() + ':' + p.effort.executor}${escalated ? ' (escalated)' : ''} · val ${p.validator ? p.validator + ':' + p.effort.validator : 'off'}`)
   }
-
-  // Start the local Laya server in the background if it is the default evaluator and isn't answering.
-  // (For #laya / #clef on top of another default, start ./serve.sh or ./serve-clef.sh yourself.)
-  on('session.start', async ($, e, next) => {
-    if (DEFAULT_EVALUATOR !== 'laya') return next(e)
-    try {
-      const up = await $.process.run(['curl', '-s', '-m', '1', `${LAYA}/health`], { timeoutMs: 2000 })
-      if (!up.stdout) await $.process.run(['sh', '-c', `nohup "${$.plugin.root}/serve.sh" >/dev/null 2>&1 </dev/null &`], { timeoutMs: 3000 })
-    } catch {}
-    return next(e)
-  })
 
   on('prompt.submit', async ($, e, next) => {
     if (e.command) return next(e)
     const tags = parseTags(e.text)
     if (tags.validate !== undefined) forced = tags.validate
-    if (tags.evaluator) evaluator = tags.evaluator
     // A short follow-up (or a prompt the engine injected) keeps the tier and skips the evaluator call. In a simple
     // session it is classified as usual: that is cheap, and the tier can still move up.
     const followUp = routed && !tags.tier && (e.isMeta === true || (tier !== 'simple' && isFollowUp(tags.text)))
     let via: LogRecord['via'] = 'kept', held = false
     if (!followUp) {
-      const c = await classify($, tags.text, evaluator)
+      const c = await classify($, tags.text)
       const picked = tags.tier ? { tier: tags.tier, band: c.band } : ratchet(routed ? { tier, band } : null, { tier: c.tier, band: c.band }, messages)
       held = !tags.tier && picked.tier !== c.tier
       via = tags.tier ? 'tag' : c.via
@@ -56,7 +43,7 @@ export const register: Register = on => {
     needsVal = tier === 'complex' // complex is always validated; medium only with #validate
     routed = true
     escalated = false
-    rec = newLogRecord(new Date().toISOString(), evaluator, via, tier, band, tags.text)
+    rec = newLogRecord(new Date().toISOString(), via, tier, band, tags.text)
     if (held) rec.held = true
     $.ui.status(statusText())
     return next({ ...e, text: tags.text })
@@ -141,8 +128,6 @@ export const register: Register = on => {
   })
 }
 
-const LAYA = 'http://127.0.0.1:8765'
-
 // Appends one line to the log. Shell append, so the file never has to be read back; failures are ignored.
 async function writeLog($: any, line: string) {
   try {
@@ -162,34 +147,14 @@ function appendNote(ran: any, note: string) {
   return ran
 }
 
-// Laya (local, ./serve.sh) answers three questions in one call (~0.1s short, ~0.65s at 2000 chars);
-// heuristic if the server is down. Validation: complex always, medium only via #validate. Laya's
-// yes/no risk questions did not separate risky work on real issues (eval/README.md), so none is asked.
-async function classify($: any, text: string, evaluator: Evaluator): Promise<{ tier: Tier; band: Band; via: 'evaluator' | 'fallback' }> {
-  const ev = EVALUATORS[evaluator]
-  if (evaluator === 'haiku') {
-    // effort low: sorting a prompt into three tiers needs no thinking, and thinking was about 1 s of each call in eval/.
-    try {
-      const r = await $.model.complete({ model: ev.model, system: HAIKU_SYSTEM, prompt: `<request>\n${text.slice(0, 2000)}\n</request>`, maxTokens: 200, effort: 'low', timeoutMs: ev.timeoutSec * 1000 })
-      const a = r.isAnswered ? parseHaikuAnswers(r.text) : undefined
-      if (a) { const { tier, band } = route(a, ev.cuts); return { tier, band, via: 'evaluator' } }
-    } catch {}
-    const tier = heuristic(text), band = heuristicBand(text)
-    return { tier, band, via: 'fallback' }
-  }
+// Haiku answers the three questions in one call; the keyword heuristic decides when the call fails or the reply
+// does not parse. Low effort: sorting a prompt into three tiers needs no thinking, and thinking was about 1 s of each
+// call in eval/.
+async function classify($: any, text: string): Promise<{ tier: Tier; band: Band; via: 'evaluator' | 'fallback' }> {
   try {
-    const r = await $.process.run(
-      ['curl', '-s', '-m', String(ev.timeoutSec), `${ev.url}/v1/systemone`, '-H', 'content-type: application/json', '-d',
-        JSON.stringify({ model: ev.model, state: { body: text.slice(0, 2000) }, questions: LAYA_QUESTIONS })],
-      { timeoutMs: (ev.timeoutSec + 1) * 1000 },
-    )
-    const a = JSON.parse(r.stdout).answers
-    const effort = Number(a?.effort?.score), question = Number(a?.question?.noul), repro = Number(a?.repro?.noul)
-    if ([effort, question, repro].every(Number.isFinite)) {
-      const { tier, band } = route({ effort, question, repro }, ev.cuts)
-      return { tier, band, via: 'evaluator' }
-    }
+    const r = await $.model.complete({ model: EVALUATOR_MODEL, system: HAIKU_SYSTEM, prompt: `<request>\n${text.slice(0, 2000)}\n</request>`, maxTokens: 200, effort: 'low', timeoutMs: EVALUATOR_TIMEOUT_SEC * 1000 })
+    const a = r.isAnswered ? parseHaikuAnswers(r.text) : undefined
+    if (a) return { ...route(a), via: 'evaluator' }
   } catch {}
-  const tier = heuristic(text), band = heuristicBand(text)
-  return { tier, band, via: 'fallback' }
+  return { tier: heuristic(text), band: heuristicBand(text), via: 'fallback' }
 }

@@ -1,44 +1,37 @@
 # Router eval
 
-Where the Laya routing rule in `logic.ts` (`route`, `CUTS`, `LAYA_QUESTIONS`) comes from.
+Where the numbers in the main README come from. The plugin's evaluator is Claude Haiku. Earlier versions also offered
+two local models (Laya and Clef-Flash); they and their experiments were removed, and are in the git history.
 
-## Data (`data/`)
-- `swe_verified.json` — 500 SWE-bench Verified issues with human difficulty labels (gold tier: medium).
-- `haiku|sonnet|opus.json` — per-task cost and pass/fail, mini-swe-agent v2.0.0, Claude 4.5, effort high,
-  one attempt each (SWE-bench/experiments `evaluation/verified/20260217_mini-v2.0.0_claude-4-5-*-high`).
-- `simple.json` — 40 CodeAlpaca prompts (gold: simple).
-- `author.json` — 10 quick repo asks (simple) + 20 design/migration asks (complex), **hand-labelled**.
+## Data (`data/`, not in the repo)
+- `swe_verified.json`: the 500 SWE-bench Verified issues (fields `instance_id`, `problem_statement`).
+- `haiku.json`, `sonnet.json`, `opus.json`: per-task `cost` and `resolved`, keyed by instance id, from the public
+  SWE-bench/experiments runs `evaluation/verified/20260217_mini-v2.0.0_claude-4-5-*-high` (mini-swe-agent, Claude 4.5,
+  effort high, one attempt each).
+- `simple.json`: 40 CodeAlpaca prompts labelled simple. `author.json`: 10 quick asks (simple) and 20 design or
+  migration asks (complex), hand-written.
 
-## Rerun
+## Scripts
 ```sh
-node eval/run-laya.mjs typed-decisions          # needs ./serve.sh; ~15 min for 570 prompts
-node eval/heur.mjs                              # keyword fallback tiers
-.venv/bin/python eval/explore.py                # AUC of every signal
-.venv/bin/python eval/simulate.py               # paper cost of routing policies on SWE-bench
-.venv/bin/python eval/fit.py                    # fit CUTS on 70%, score on 30%
-node eval/check.mjs                             # shipped logic.ts vs the eval set
-node eval/cascade.mjs                           # cost of old router / new classifier / cascade variants
+node --experimental-strip-types eval/run-haiku.mjs   # Haiku's answers for the 570 prompts -> out/haiku.json (about $0.50)
+node --experimental-strip-types eval/savings.mjs     # router cost vs one model for everything, on the 500 issues
+node eval/catch-rate.mjs                             # summary of your own ~/.claude-router/log.jsonl
 ```
 
-## Findings
-1. Questions are independent heads: one call with N questions = N single calls, identical numbers.
-2. Laya reliably separates trivial asks from real work (AUC 0.9+) and design work from bug fixes (effort score, ~0.8).
-3. Among real bug fixes nothing predicts which tasks Haiku fails (AUC 0.47–0.56). Even human difficulty
-   labels route no better than random. Per-prompt routing within the medium tier is pointless.
-4. Prompt length points the wrong way: long prompts are detailed bug reports, not hard tasks.
-   Removed from the fallback heuristic.
-5. The old router (tier argmax) sent 342/500 bug fixes to complex. New rule: held-out balanced accuracy
-   0.77 ± 0.04 (old 0.49).
-6. The yes/no risk checks (security/data/concurrency) didn't separate risky work on real issues; dropped.
-7. Cost: Sonnet costs ~87% of Opus per task here and solves fewer (71.4% vs 76.8%). Haiku is 66.6% at 44%
-   of Opus's cost. Escalating Haiku → Opus only on detected failure reaches 79% at $339 (vs Opus $377)
-   when detection is perfect. The validator-as-escalation step is where the remaining savings are.
+## Findings that shaped the router
+1. Among real bug fixes, nothing in the prompt predicted which ones a cheap model fails (AUC 0.47 to 0.56), and human
+   difficulty labels did no better. So the medium tier is not split further; a failed cheap attempt is caught afterwards.
+2. Prompt length is not difficulty: long prompts are mostly detailed bug reports.
+3. One model for everything on the 500 issues: Haiku 66.6% solved for $165, Sonnet 71.4% for $329, Opus 76.8% for $377.
+   Sonnet cost 87% of Opus per task and solved fewer, so the medium tier starts on Haiku and escalates to Opus.
+4. A paid Opus review of every medium task cost more than always using Opus. The router escalates only on free
+   signals: an executor's `STATUS: FAILED` line, a failing test command, or a verifier's `VERDICT: FAIL`.
+5. With 40 to 80% of failures caught (assumed, not measured), `savings.mjs` gives 71 to 76% solved for $256 to $318:
+   16 to 32% cheaper than Opus, 1 to 6 points fewer solved.
 
-8. Cascade cost (eval/cascade.mjs): once the verification pass is paid for, Haiku -> Opus with an Opus
-   reviewer costs as much as always-Opus or more. It only saves money with a ~free failure signal, so the
-   router escalates on the executor's own `STATUS: FAILED` line or a failing test command. With 40-80% of
-   failures caught: 71-76% solved at $259-327 vs old router 75.8% at $450 (27-43% cheaper).
-   How many failures the free signal actually catches is the unmeasured number.
-
-Caveats: 4.5-generation models, API prices, a single bash-only agent (no orchestrator/executors),
-one run per task (noisy). Only 20 complex examples, and those were written by me.
+## What these numbers do not cover
+- The catch rate is assumed. The plugin's log exists to measure it.
+- The data is one agent working alone. The plugin runs a main loop over subagents; that overhead is not priced.
+- The 570-prompt set rewards prompt length (every medium example is a long GitHub issue), so the cut-offs fitted on it
+  are starting values and no accuracy figure from it is quoted any more.
+- Claude 4.5 models at API prices, one run per task.

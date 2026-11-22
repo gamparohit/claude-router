@@ -1,17 +1,14 @@
 // Pure-logic checks. Run with: claude plugin test .
 import { expect, test } from 'claude-code/testing'
 import {
-  DEFAULT_EVALUATOR, EFFORT, EVALUATORS, TIERS, executorFailed, heuristic, heuristicBand, heuristicNeedsValidation,
+  CUTS, EFFORT, TIERS, executorFailed, heuristic, heuristicBand,
   failureSignal, isFollowUp, isTestCommand, isVerifyPrompt, newLogRecord, parseHaikuAnswers, parseTags, ratchet, route, validatorFailed,
 } from './logic'
 
 test('tags', () => {
-  expect(parseTags('#complex #novalidate fix it')).toEqual({ text: 'fix it', tier: 'complex', validate: false, evaluator: undefined })
+  expect(parseTags('#complex #novalidate fix it')).toEqual({ text: 'fix it', tier: 'complex', validate: false })
   expect(parseTags('plain').tier).toBeUndefined()
   expect(parseTags('#autovalidate x').validate).toBe(null)
-  expect(parseTags('#clef fix it').evaluator).toBe('clef')
-  expect(parseTags('#haiku x').evaluator).toBe('haiku')
-  expect(parseTags('fix it').evaluator).toBeUndefined()
 })
 
 test('keyword fallback', () => {
@@ -21,16 +18,15 @@ test('keyword fallback', () => {
   expect(heuristic('x'.repeat(1500))).toBe('medium') // length alone is not difficulty
   expect(heuristicBand('fix typo')).toBe('low')
   expect(heuristicBand('x'.repeat(900))).toBe('mid')
-  expect(heuristicNeedsValidation('medium', 'low')).toBe(false)
 })
 
 test('route and cut-offs', () => {
   expect(route({ effort: 2.5, question: 0.9, repro: 0 })).toEqual({ tier: 'simple', band: 'low' })
-  expect(route({ effort: 1.4, question: 0.3, repro: 0.2 }).tier).toBe('simple')
+  expect(route({ effort: 1.2, question: 0.3, repro: 0.2 }).tier).toBe('simple')
+  expect(route({ effort: 1.2, question: 0.3, repro: 0.2 }, { ...CUTS, simple: 1.0 }).tier).toBe('medium') // cut-offs can be passed in
+  expect(parseTags('#laya fix it').text).toBe('#laya fix it') // removed evaluator tags are plain text now
   expect(route({ effort: 2.7, question: 0.3, repro: 0.6 }).tier).toBe('medium') // bug report, never complex
   expect(route({ effort: 3.1, question: 0.3, repro: 0.1 })).toEqual({ tier: 'complex', band: 'high' })
-  expect(route({ effort: 1.5, question: 0, repro: 0 }).tier).toBe('simple') // laya cuts
-  expect(route({ effort: 1.5, question: 0, repro: 0 }, EVALUATORS.clef.cuts).tier).toBe('medium') // clef: simple below 1.1
 })
 
 test('failure signals', () => {
@@ -49,7 +45,7 @@ test('failure signals', () => {
   expect(failureSignal('STATUS: DONE', false, false)).toBe(null)
   expect(failureSignal('STATUS: FAILED\nVERDICT: PASS', true, true)).toBe(null) // a verifier is judged by its verdict only
   expect(failureSignal('VERDICT: FAIL: race', true, false)).toBe('verdict')
-  expect(newLogRecord('t', 'haiku', 'evaluator', 'medium', 'mid', '  fix   the parser ').words).toBe(3)
+  expect(newLogRecord('t', 'evaluator', 'medium', 'mid', '  fix   the parser ').words).toBe(3)
 })
 
 test('haiku reply parsing', () => {
@@ -62,7 +58,6 @@ test('tables', () => {
   expect(TIERS.simple.main).toBe('haiku')
   expect(TIERS.medium).toEqual({ main: 'haiku', executor: 'haiku', validator: 'opus', escalate: 'opus' })
   expect(EFFORT.complex.high.validator).toBe('xhigh')
-  expect(DEFAULT_EVALUATOR).toBe('haiku')
 })
 
 test('session stickiness', () => {

@@ -7,7 +7,7 @@ const rows = readFileSync(file, 'utf8').split('\n').filter(Boolean).map(l => JSO
 const n = f => rows.filter(f).length, pct = (a, b) => (b ? `${(100 * a / b).toFixed(0)}%` : 'n/a')
 const by = k => Object.entries(rows.reduce((m, r) => ({ ...m, [r[k]]: (m[r[k]] ?? 0) + 1 }), {})).map(([v, c]) => `${v} ${c}`).join(', ')
 console.log(`${rows.length} routed prompts in ${file}`)
-console.log(`tier: ${by('tier')}\nevaluator: ${by('evaluator')}\ndecided by: ${by('via')}   (a high "fallback" share means the evaluator is not answering)`)
+console.log(`tier: ${by('tier')}\ndecided by: ${by('via')}   (a high "fallback" share means the evaluator is not answering)`)
 
 const work = rows.filter(r => r.tier !== 'simple'), esc = work.filter(r => r.escalated)
 console.log(`\nmedium + complex prompts: ${work.length}; with at least one Agent call: ${work.filter(r => r.agents).length}; with a test command seen: ${work.filter(r => r.tests).length}`)

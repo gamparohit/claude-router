@@ -9,9 +9,9 @@ const DONE = { result: 'did it\nSTATUS: DONE' }, FAILED = { result: 'did stuff\n
 
 // Stand-in for the engine. `h` holds what the stubs answer (tests change it) and what they saw.
 function host(on: any, haiku: string | null = COMPLEX) {
-  const h: any = { haiku, agent: DONE, bash: { result: '', isError: false }, laya: '', status: [], steps: [], spawns: [], completes: [], runs: [], prompts: [] }
+  const h: any = { haiku, agent: DONE, bash: { result: '', isError: false }, status: [], steps: [], spawns: [], completes: [], runs: [], prompts: [] }
   on('model.complete', (_: any, e: any) => { h.completes.push(e); return { value: h.haiku === null ? { isAnswered: false, reason: 'api-error' } : { isAnswered: true, text: h.haiku, usage: {} } } })
-  on('process.run', (_: any, e: any) => { h.runs.push(e); return { value: { exitCode: 0, stdout: h.laya, stderr: '' } } })
+  on('process.run', (_: any, e: any) => { h.runs.push(e); return { value: { exitCode: 0, stdout: '', stderr: '' } } })
   on('ui.status', (_: any, e: any) => { h.status.push(JSON.stringify(e)); return { value: {} } })
   on('prompt.submit', (_: any, e: any) => { h.prompts.push(e); return { text: e.text } })
   on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'x', scope: 'shared' }] }))
@@ -35,7 +35,7 @@ test('haiku evaluator sets the tier and the status line', async ($, on) => {
   expect(h.completes.length).toBe(1)
   expect(h.completes[0].model).toBe('haiku')
   expect(h.completes[0].effort).toBe('low')
-  expect(last(h.status)).toContain('router[haiku]: complex/high')
+  expect(last(h.status)).toContain('router: complex/high')
   expect(last(h.status)).toContain('opus')
 })
 
@@ -46,15 +46,6 @@ test('evaluator down: keyword fallback', async ($, on) => {
   h.haiku = 'sorry, no' // answered, but not the JSON asked for
   await submit($, 'redesign the auth architecture')
   expect(last(h.status)).toContain('complex')
-})
-
-test('#laya asks the local server through curl', async ($, on) => {
-  const h = host(on)
-  h.laya = JSON.stringify({ answers: { effort: { score: 2.1 }, question: { noul: 0.1 }, repro: { noul: 0.8 } } })
-  await submit($, '#laya parser crashes on empty input, traceback below')
-  expect(h.completes.length).toBe(0)
-  expect(JSON.stringify(h.runs[0])).toContain('127.0.0.1:8765/v1/systemone')
-  expect(last(h.status)).toContain('router[laya]: medium/mid')
 })
 
 test('tags force the tier and are stripped; slash commands pass through', async ($, on) => {
@@ -167,7 +158,7 @@ test('log: one line per routed prompt at the end of the main turn, counts only',
   await complete($) // nothing left to write
   expect(logged(h).length).toBe(1)
   const r = logged(h)[0]
-  expect({ ...r, t: '' }).toEqual({ t: '', evaluator: 'haiku', via: 'evaluator', tier: 'medium', band: 'mid', words: 5, agents: 1, done: 1, failed: 0,
+  expect({ ...r, t: '' }).toEqual({ t: '', via: 'evaluator', tier: 'medium', band: 'mid', words: 5, agents: 1, done: 1, failed: 0,
     tests: 1, testsFailed: 0, lastTestFailed: false, escalated: null, retry: null, reason: 'answer', ms: 1234 })
   expect(JSON.stringify(last(h.runs))).not.toContain('parser')
 })
