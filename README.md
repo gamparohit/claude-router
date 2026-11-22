@@ -53,6 +53,12 @@ Add tags anywhere in a prompt (they are removed before the model sees it):
 | `#autovalidate` | Back to the default |
 | `#haiku` `#laya` `#clef` | Switch evaluator (sticky) |
 
+**The tier is sticky within a session.** Switching the main model in the middle of a conversation throws away that conversation's prompt cache, so the router avoids doing it needlessly:
+
+- The tier moves up when a prompt needs it. It moves down only while the conversation is still short.
+- A follow-up of six words or fewer ("continue", "now add tests") keeps the current tier and skips the evaluator, unless the session is on the simple tier.
+- The status line shows `(kept)` when this happens. A `#simple`, `#medium` or `#complex` tag always wins, and `/clear` starts afresh.
+
 Defaults live in `logic.ts` (`TIERS`, `EFFORT`, `EVALUATORS`, `DEFAULT_EVALUATOR`). Open `docs/router-explainer.html` for a walkthrough of the router (written before the evaluators were added, so it covers Laya only).
 
 ## The log

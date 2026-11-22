@@ -18,6 +18,7 @@ function host(on: any, haiku: string | null = COMPLEX) {
   on('turn.step', async function* (_: any, e: any) { h.steps.push(e); return { turnId: 't', index: 0, answer: '', toolUses: [], stopReason: 'end_turn', usage: null } })
   on('agent.spawn', (_: any, e: any) => { h.spawns.push(e); return { model: e.model } })
   on('turn.complete', (_: any, e: any) => ({ text: e.answer }))
+  on('session.end', (_: any, e: any) => ({ sessionId: e.sessionId }))
   on('tool.call', async (_: any, e: any) => (e.tool === 'Bash' ? h.bash : typeof h.agent === 'function' ? h.agent() : h.agent))
   return h
 }
@@ -176,4 +177,72 @@ test('log: says when the keyword fallback or a tag decided, and skips slash comm
   await submit($, '#medium tidy the readme'); await complete($)
   await submit($, '/help', { command: { name: 'help', args: '' } }); await complete($)
   expect(logged(h).map((r: any) => r.via)).toEqual(['fallback', 'tag'])
+})
+
+const LONG = 'please take a look at the settings page and tell me what the save button does'
+
+test('a short follow-up keeps the tier and skips the evaluator call', async ($, on) => {
+  const h = host(on)
+  await submit($, 'redo the storage layer'); await complete($)
+  h.haiku = SIMPLE
+  await submit($, 'continue')
+  expect(h.completes.length).toBe(1)
+  expect(last(h.status)).toContain('complex/high (kept)')
+  await step($)
+  expect(last(h.steps).model).toBe('opus')
+  await complete($)
+  expect(logged(h)[1].via).toBe('kept')
+})
+
+test('in a simple session a short follow-up is still classified, so it can move up', async ($, on) => {
+  const h = host(on, SIMPLE)
+  await submit($, 'what is a monad?')
+  h.haiku = MEDIUM
+  await submit($, 'now add tests')
+  expect(h.completes.length).toBe(2)
+  expect(last(h.status)).toContain('medium')
+})
+
+test('ratchet: a long conversation does not move down a tier, unless tagged', async ($, on) => {
+  const h = host(on)
+  await submit($, 'redo the storage layer')
+  await step($, { messageCount: 40 }); await complete($)
+  h.haiku = SIMPLE
+  await submit($, LONG)
+  expect(h.completes.length).toBe(2)
+  expect(last(h.status)).toContain('complex/high (kept)')
+  expect(last(h.status)).toContain('fable') // still validated
+  await complete($)
+  expect(logged(h)[1].held).toBe(true)
+  await submit($, '#simple ' + LONG)
+  expect(last(h.status)).toContain('simple')
+})
+
+test('ratchet: a short conversation may move down, and /clear starts afresh', async ($, on) => {
+  const h = host(on)
+  await submit($, 'redo the storage layer')
+  await step($, { messageCount: 3 })
+  h.haiku = SIMPLE
+  await submit($, LONG)
+  expect(last(h.status)).toContain('simple')
+  h.haiku = COMPLEX
+  await submit($, 'redo the storage layer again from the ground up please')
+  await step($, { messageCount: 40 })
+  await ($ as any).session.end({ reason: 'clear', sessionId: 's' })
+  h.haiku = SIMPLE
+  await submit($, LONG)
+  expect(last(h.status)).toContain('simple')
+})
+
+test('an injected prompt keeps the tier', async ($, on) => {
+  const h = host(on, MEDIUM)
+  await submit($, 'parser crashes on empty input')
+  await submit($, 'background task 12 finished with exit code 0 and wrote its report to disk', { isMeta: true })
+  expect(h.completes.length).toBe(1)
+})
+
+test('a forced #complex is validated even when the evaluator says simple', async ($, on) => {
+  const h = host(on, SIMPLE)
+  await submit($, '#complex tidy the readme')
+  expect(last(h.status)).toContain('val fable')
 })

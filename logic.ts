@@ -31,17 +31,34 @@ export function failureSignal(reply: string, isVerify: boolean, lastTestFailed: 
   return executorFailed(reply) ? 'status' : lastTestFailed ? 'test' : null
 }
 
+// Session stickiness. Changing the main model mid-conversation abandons that conversation's prompt cache, so the whole
+// history is re-read at full input price on the new model, and coming back up later pays that again. So within a session:
+//  - the tier moves up when a prompt needs it, and down only while the conversation is still short;
+//  - a short follow-up ("continue", "now add tests") carries too little signal to re-classify, so it keeps the tier.
+// An explicit #simple / #medium / #complex tag always wins. Thresholds are hand picks, not fitted.
+export const SHORT_CONVERSATION = 6 // messages in the main loop's last request; below this a move down is cheap
+export const FOLLOW_UP_WORDS = 6
+const RANK: Tier[] = ['simple', 'medium', 'complex']
+const words = (text: string) => text.trim().split(/\s+/).filter(Boolean).length
+export const isFollowUp = (text: string) => words(text) <= FOLLOW_UP_WORDS
+/** The tier and band to run with, given what the session is on (null = nothing routed yet) and what the evaluator said. */
+export function ratchet<T extends { tier: Tier; band: Band }>(prev: T | null, fresh: T, messages: number): T {
+  if (!prev || messages < SHORT_CONVERSATION) return fresh
+  return RANK.indexOf(fresh.tier) > RANK.indexOf(prev.tier) ? fresh : prev // same tier keeps its band: no effort flip-flop
+}
+
 // One line per routed prompt goes to ~/.claude-router/log.jsonl (ROUTER_LOG=0 turns it off): counts only, never prompt
 // text. It exists to measure the catch rate the savings estimates assume; eval/catch-rate.mjs summarises it.
 export type LogRecord = {
-  t: string; evaluator: string; via: 'evaluator' | 'fallback' | 'tag'; tier: Tier; band: Band; words: number
+  t: string; evaluator: string; via: 'evaluator' | 'fallback' | 'tag' | 'kept'; tier: Tier; band: Band; words: number // kept = short follow-up, not classified
+  held?: true // the evaluator said a lower tier and the session stayed where it was
   agents: number; done: number; failed: number // Agent calls, and their STATUS lines before any escalation
   tests: number; testsFailed: number; lastTestFailed: boolean | null // test commands seen (null = none ran)
   escalated: Signal | null; retry: 'done' | 'failed' | null // which signal escalated, and what the retry reported
   reason?: string; ms?: number
 }
 export const newLogRecord = (t: string, evaluator: string, via: LogRecord['via'], tier: Tier, band: Band, text: string): LogRecord => ({
-  t, evaluator, via, tier, band, words: text.trim().split(/\s+/).filter(Boolean).length,
+  t, evaluator, via, tier, band, words: words(text),
   agents: 0, done: 0, failed: 0, tests: 0, testsFailed: 0, lastTestFailed: null, escalated: null, retry: null,
 })
 /** Verifier spawns are tagged "[verify]" by the policy text; model names can't tell them apart when

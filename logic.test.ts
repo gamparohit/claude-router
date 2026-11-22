@@ -2,7 +2,7 @@
 import { expect, test } from 'claude-code/testing'
 import {
   DEFAULT_EVALUATOR, EFFORT, EVALUATORS, TIERS, executorFailed, heuristic, heuristicBand, heuristicNeedsValidation,
-  failureSignal, isTestCommand, isVerifyPrompt, newLogRecord, parseHaikuAnswers, parseTags, route, validatorFailed,
+  failureSignal, isFollowUp, isTestCommand, isVerifyPrompt, newLogRecord, parseHaikuAnswers, parseTags, ratchet, route, validatorFailed,
 } from './logic'
 
 test('tags', () => {
@@ -63,4 +63,15 @@ test('tables', () => {
   expect(TIERS.medium.escalate).toBe('opus')
   expect(EFFORT.complex.high.validator).toBe('xhigh')
   expect(DEFAULT_EVALUATOR).toBe('haiku')
+})
+
+test('session stickiness', () => {
+  const C = { tier: 'complex', band: 'high' } as const, M = { tier: 'medium', band: 'mid' } as const, S = { tier: 'simple', band: 'low' } as const
+  expect(ratchet(null, S, 99)).toEqual(S) // first prompt of a session
+  expect(ratchet(M, C, 99)).toEqual(C) // up is always allowed
+  expect(ratchet(C, S, 99)).toEqual(C) // down is not, in a long conversation
+  expect(ratchet(C, S, 5)).toEqual(S) // but is while the conversation is short
+  expect(ratchet({ tier: 'complex', band: 'high' }, { tier: 'complex', band: 'mid' }, 99).band).toBe('high') // same tier keeps its band
+  expect(isFollowUp('now add tests')).toBe(true)
+  expect(isFollowUp('add a --verbose flag to the CLI and cover it with tests')).toBe(false)
 })
