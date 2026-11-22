@@ -58,4 +58,8 @@ Early. The classifier rules and cost estimates come from an evaluation on SWE-be
 
 The SWE-bench data used by `eval/` is not included; see `eval/README.md`.
 
+## Contributing
+
+Reports from real use are the most useful thing right now, including "it worked". See [CONTRIBUTING.md](CONTRIBUTING.md). Changes to `main` go through pull requests. Security problems: see [SECURITY.md](SECURITY.md).
+
 License: MIT.
