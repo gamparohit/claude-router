@@ -168,8 +168,9 @@ function appendNote(ran: any, note: string) {
 async function classify($: any, text: string, evaluator: Evaluator): Promise<{ tier: Tier; band: Band; via: 'evaluator' | 'fallback' }> {
   const ev = EVALUATORS[evaluator]
   if (evaluator === 'haiku') {
+    // effort low: sorting a prompt into three tiers needs no thinking, and thinking was about 1 s of each call in eval/.
     try {
-      const r = await $.model.complete({ model: ev.model, system: HAIKU_SYSTEM, prompt: `<request>\n${text.slice(0, 2000)}\n</request>`, maxTokens: 200, timeoutMs: ev.timeoutSec * 1000 })
+      const r = await $.model.complete({ model: ev.model, system: HAIKU_SYSTEM, prompt: `<request>\n${text.slice(0, 2000)}\n</request>`, maxTokens: 200, effort: 'low', timeoutMs: ev.timeoutSec * 1000 })
       const a = r.isAnswered ? parseHaikuAnswers(r.text) : undefined
       if (a) { const { tier, band } = route(a, ev.cuts); return { tier, band, via: 'evaluator' } }
     } catch {}

@@ -117,7 +117,9 @@ export type Cuts = typeof CUTS
 //        on a 16 GB M-series Mac. Cut-offs fitted in eval/clef_analysis.py; highBand is a hand pick, not fitted.
 export type Evaluator = 'laya' | 'clef' | 'haiku'
 //  haiku: Claude Haiku answers the same questions as probabilities through the session's own model call: nothing to
-//         install and no RAM, but each prompt costs a small Haiku request (~$0.0009 measured via `claude -p`, ~5 s).
+//         install and no RAM, but each prompt costs a small Haiku request. Through `claude -p` that measured ~$0.0009 and ~5 s,
+//         of which about 0.75 s was the model call and the rest CLI start-up, CLI context and thinking. The plugin's own
+//         call skips the CLI and asks at low effort; its latency has not been timed in a live session.
 //         Held-out 0.87; cut-offs fitted in eval/clef_analysis.py (70% split); highBand is a hand pick.
 // Default for new sessions. haiku needs nothing installed; laya and clef need setup.sh / setup-clef.sh and a running server.
 export const DEFAULT_EVALUATOR: Evaluator = 'haiku'

@@ -18,11 +18,13 @@ The **evaluator** is the model that reads your prompt and scores it. Three are i
 
 | Evaluator | Switch with | Setup | RAM | Speed | Cost | Accuracy* |
 |---|---|---|---|---|---|---|
-| **Haiku** (default) | `#haiku` | none | none | about 5 s | about $0.001 per prompt, from your Claude usage | 0.87 |
+| **Haiku** (default) | `#haiku` | none | none | 1–5 s† | up to about $0.001 per prompt, from your Claude usage | 0.87 |
 | **Laya** | `#laya` | `setup.sh` (about 800 MB) | about 3 GB | about 0.1 s | free | 0.77 |
 | **Clef-Flash** | `#clef` | `setup-clef.sh` (about 6 GB) | about 6.4 GB (7.1 GB peak) | about 4.6 s | free | 0.97 |
 
 \*Balanced accuracy on held-out prompts from our own 570-prompt eval (`eval/`). Only 20 of those prompts are complex tasks, written by hand, so treat these as rough.
+
+†Measured at about 5 s when called through the `claude` command line, most of it command-line start-up and thinking; the model call itself was about 0.75 s. The plugin calls Haiku directly at low effort, which should land near the low end, but that has not been timed in a live session.
 
 The tag stays in effect for the rest of the session. After `setup.sh` or `setup-clef.sh`, start the server (`./serve.sh` or `./serve-clef.sh` from the plugin folder) before using `#laya` or `#clef`. If an evaluator can't be reached, the router falls back to a simple keyword check.
 

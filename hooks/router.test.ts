@@ -34,6 +34,7 @@ test('haiku evaluator sets the tier and the status line', async ($, on) => {
   await submit($, 'redo the storage layer')
   expect(h.completes.length).toBe(1)
   expect(h.completes[0].model).toBe('haiku')
+  expect(h.completes[0].effort).toBe('low')
   expect(last(h.status)).toContain('router[haiku]: complex/high')
   expect(last(h.status)).toContain('opus')
 })
