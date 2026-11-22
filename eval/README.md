@@ -18,6 +18,16 @@ node --experimental-strip-types eval/savings.mjs     # router cost vs one model 
 node eval/catch-rate.mjs                             # summary of your own ~/.claude-router/log.jsonl
 ```
 
+### Real prompts (SWE-chat)
+[SWE-chat](https://huggingface.co/datasets/SALT-NLP/SWE-chat) is a gated dataset of real coding-agent sessions (licence
+odc-by). Accept its terms on Hugging Face, then download `conversations.parquet` (6 GB) to `~/.claude-router/swe-chat/`.
+The data and everything derived from it stay there, outside the repo. Needs `pip install duckdb numpy`.
+```sh
+python eval/swechat_sample.py                        # 200 first prompts + 200 follow-ups typed into Claude Code -> sample.json
+node --experimental-strip-types eval/run-sample.mjs ~/.claude-router/swe-chat/sample.json ~/.claude-router/swe-chat/out-haiku.json   # about $0.07
+python eval/swechat_score.py                         # Haiku's scores against the work that followed each prompt
+```
+
 ## Findings that shaped the router
 1. Among real bug fixes, nothing in the prompt predicted which ones a cheap model fails (AUC 0.47 to 0.56), and human
    difficulty labels did no better. So the medium tier is not split further; a failed cheap attempt is caught afterwards.
@@ -28,6 +38,11 @@ node eval/catch-rate.mjs                             # summary of your own ~/.cl
    signals: an executor's `STATUS: FAILED` line, a failing test command, or a verifier's `VERDICT: FAIL`.
 5. With 40 to 80% of failures caught (assumed, not measured), `savings.mjs` gives 71 to 76% solved for $256 to $318:
    16 to 32% cheaper than Opus, 1 to 6 points fewer solved.
+
+6. On 400 real prompts from SWE-chat, Haiku's effort score tracked the number of tool calls that followed better than
+   word count did (rank correlation 0.46 against 0.32; on follow-ups 0.28 against 0.08). 79% of follow-ups of six words
+   or fewer led to edits or commands, and Haiku would have called 68% of them simple, which is why short follow-ups keep
+   the session's tier. SWE-chat has no tier labels, so this is a comparison with what happened next, not an accuracy.
 
 ## What these numbers do not cover
 - The catch rate is assumed. The plugin's log exists to measure it.

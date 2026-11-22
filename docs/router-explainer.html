@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Router Explainer</title>
+<style>
+  body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+  :root {
+    --bg: #fbfaf8; --panel: #ffffff; --ink: #1d1d1f; --muted: #62605b; --line: #dedad2;
+    --accent: #b4491f; --accent-soft: #f6e4da; --blue: #2a5d9f; --blue-soft: #e1ebf7;
+    --green: #2b7a4b; --green-soft: #dff0e5; --amber: #8a6200; --amber-soft: #f8edcf;
+    --red: #a8322d; --red-soft: #f7e0de; --code: #f1eee8;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161513; --panel: #1f1e1b; --ink: #ece9e2; --muted: #a29e94; --line: #3a3833;
+      --accent: #e8855a; --accent-soft: #3a2519; --blue: #7fb0ea; --blue-soft: #1c2b3f;
+      --green: #6fcf93; --green-soft: #17301f; --amber: #e3b94f; --amber-soft: #352b10;
+      --red: #ef8d87; --red-soft: #3a1b19; --code: #2a2824;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+      --bg: #161513; --panel: #1f1e1b; --ink: #ece9e2; --muted: #a29e94; --line: #3a3833;
+      --accent: #e8855a; --accent-soft: #3a2519; --blue: #7fb0ea; --blue-soft: #1c2b3f;
+      --green: #6fcf93; --green-soft: #17301f; --amber: #e3b94f; --amber-soft: #352b10;
+      --red: #ef8d87; --red-soft: #3a1b19; --code: #2a2824;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 48px max(16px, env(safe-area-inset-right, 0px)) 24px max(16px, env(safe-area-inset-left, 0px)); max-width: 920px; margin: 0 auto; }
+  h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 8px; }
+  .lede { color: var(--muted); font-size: 1.05rem; max-width: 68ch; margin: 0; }
+  nav { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(6px); border-bottom: 1px solid var(--line); }
+  nav ul { list-style: none; margin: 0 auto; padding: 8px max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px)); max-width: 920px; display: flex; gap: 4px 16px; flex-wrap: wrap; font-size: .85rem; }
+  nav a { color: var(--muted); text-decoration: none; }
+  nav a:hover, nav a:focus-visible { color: var(--accent); text-decoration: underline; }
+  main { max-width: 920px; margin: 0 auto; padding: 0 max(16px, env(safe-area-inset-right, 0px)) 80px max(16px, env(safe-area-inset-left, 0px)); }
+  section { padding-top: 40px; }
+  h2 { font-size: 1.4rem; margin: 0 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  h3 { font-size: 1.05rem; margin: 24px 0 6px; }
+  p { margin: 0 0 12px; max-width: 72ch; }
+  code, .mono { font-family: var(--mono); font-size: .88em; background: var(--code); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--code); padding: 12px 14px; border-radius: 8px; overflow-x: auto; font: .85rem/1.5 var(--mono); margin: 0 0 14px; }
+  pre code { background: none; padding: 0; }
+  .grid { display: grid; gap: 12px; }
+  .g3 { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+  .card h3 { margin-top: 0; }
+  .tag { display: inline-block; font: .78rem var(--mono); padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); }
+  .t-simple { background: var(--green-soft); color: var(--green); border-color: transparent; }
+  .t-medium { background: var(--blue-soft); color: var(--blue); border-color: transparent; }
+  .t-complex { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); background: var(--code); }
+  tr:last-child td { border-bottom: 0; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .scroll { overflow-x: auto; margin-bottom: 14px; }
+  .note { border-left: 3px solid var(--amber); background: var(--amber-soft); padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 0 0 14px; max-width: 72ch; }
+  .good { border-left-color: var(--green); background: var(--green-soft); }
+  .bad { border-left-color: var(--red); background: var(--red-soft); }
+  .muted { color: var(--muted); }
+  .small { font-size: .85rem; }
+  .hit { background: var(--accent-soft); font-weight: 600; }
+  /* flow */
+  .flow { display: flex; flex-direction: column; align-items: stretch; gap: 0; margin: 12px 0 18px; }
+  .step { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; position: relative; }
+  .step .n { display: inline-flex; width: 22px; height: 22px; align-items: center; justify-content: center; border-radius: 50%; background: var(--accent); color: #fff; font-size: .78rem; font-weight: 700; margin-right: 8px; }
+  .step b { font-size: .98rem; }
+  .step p { margin: 4px 0 0 30px; font-size: .9rem; color: var(--muted); max-width: none; }
+  .arrow { text-align: center; color: var(--muted); line-height: 1.2; font-size: 1.1rem; padding: 2px 0; }
+  .fan { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+  .fan .step { border-color: var(--blue); }
+  /* controls */
+  .ctl { display: grid; grid-template-columns: minmax(90px,130px) minmax(0,1fr) 56px; gap: 10px; align-items: center; margin: 6px 0; font-size: .92rem; }
+  .ctl output { font-family: var(--mono); text-align: right; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  select { font: inherit; padding: 3px 6px; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; }
+  /* bars */
+  .bars { display: grid; gap: 10px; margin: 10px 0 6px; }
+  .bar-row { display: grid; grid-template-columns: minmax(110px, 230px) minmax(0,1fr); gap: 12px; align-items: center; font-size: .86rem; }
+  .bar-label small { display: block; color: var(--muted); }
+  .track { position: relative; height: 22px; background: var(--code); border-radius: 5px; }
+  .fill, .ext { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 5px; }
+  .fill { background: var(--blue); }
+  .ext { background: repeating-linear-gradient(45deg, var(--blue-soft), var(--blue-soft) 4px, var(--panel) 4px, var(--panel) 8px); border: 1px solid var(--blue); }
+  .shipped .fill { background: var(--accent); }
+  .val { position: absolute; right: 6px; top: 0; line-height: 22px; font: .78rem var(--mono); color: var(--ink); }
+  .big { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 12px 0; }
+  .big div { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .big b { display: block; font-size: 1.5rem; font-variant-numeric: tabular-nums; }
+  .big span { font-size: .8rem; color: var(--muted); }
+  footer { max-width: 920px; margin: 0 auto; padding: 0 max(16px, env(safe-area-inset-right, 0px)) 48px max(16px, env(safe-area-inset-left, 0px)); color: var(--muted); font-size: .85rem; }
+  ul.tight { margin: 0 0 12px; padding-left: 20px; max-width: 72ch; }
+  ul.tight li { margin-bottom: 4px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Router: how it picks models and effort</h1>
+  <p class="lede">A Claude Code plugin that sorts each prompt into <em>simple</em>, <em>medium</em> or <em>complex</em>, then chooses which Claude model does the work, how hard it thinks, and whether anything checks the result. The goal is to make a Claude subscription last longer.</p>
+</header>
+
+<nav aria-label="Sections">
+  <ul>
+    <li><a href="#what">1. What it does</a></li>
+    <li><a href="#flow">2. Request flow</a></li>
+    <li><a href="#classifier">3. Evaluator</a></li>
+    <li><a href="#sticky">4. Sticky tier</a></li>
+    <li><a href="#cascade">5. Cascade</a></li>
+    <li><a href="#evidence">6. Evidence</a></li>
+    <li><a href="#caveats">7. Caveats</a></li>
+  </ul>
+</nav>
+
+<main>
+
+<section id="what">
+  <h2>1. What the router does</h2>
+  <p>For every prompt you send, the router decides a <b>tier</b> (how big the job is) and a <b>band</b> (how demanding it is inside that tier). Those two choices fill in a plan: a model for each <b>role</b>, an effort level for each role, and whether a validator runs at the end.</p>
+
+  <h3>Tiers and roles (<code>TIERS</code> in <code>logic.ts</code>)</h3>
+  <div class="scroll"><table>
+    <thead><tr><th>Tier</th><th>Main</th><th>Executor</th><th>Validator</th><th>Escalate</th></tr></thead>
+    <tbody>
+      <tr><td><span class="tag t-simple">simple</span></td><td>haiku</td><td><span class="muted small">not used: Haiku answers on its own</span></td><td>none</td><td>none</td></tr>
+      <tr><td><span class="tag t-medium">medium</span></td><td>haiku</td><td>haiku</td><td>opus <span class="muted small">(only with <code>#validate</code>)</span></td><td>opus</td></tr>
+      <tr><td><span class="tag t-complex">complex</span></td><td>opus</td><td>sonnet</td><td>fable <span class="muted small">(always, unless <code>#novalidate</code>)</span></td><td>opus</td></tr>
+    </tbody>
+  </table></div>
+  <ul class="tight">
+    <li><b>Main</b>: the model that talks to you. On medium and complex it is told to act as an orchestrator and delegate.</li>
+    <li><b>Executor</b>: subagents that do the bulk work (search, edit, run commands).</li>
+    <li><b>Validator</b>: one final subagent whose prompt starts with <code>[verify]</code>. It checks the result and ends with <code>VERDICT: PASS</code> or <code>VERDICT: FAIL</code>.</li>
+    <li><b>Escalate</b>: the model executors switch to after a failed first attempt (<a href="#cascade">section 5</a>).</li>
+  </ul>
+  <p>Medium is where almost all real work lands. It starts on Haiku and brings in Opus only after a failure is noticed. An earlier version put Sonnet in charge of medium; in the evidence below Sonnet cost 87% of what Opus did per task and solved fewer, which left little to save.</p>
+
+  <h3>Effort matrix (<code>EFFORT</code>)</h3>
+  <p>Tier and band pick an effort level for each role. <code>max</code> is never used. Highlighted rows are the ones the evaluator's rule can produce. The others can occur through the keyword fallback or a <code>#tier</code> tag.</p>
+  <div class="scroll"><table id="effort-table">
+    <thead><tr><th>Tier</th><th>Band</th><th>Main</th><th>Executor</th><th>Validator</th></tr></thead>
+    <tbody></tbody>
+  </table></div>
+
+  <h3>Tags you can type in a prompt</h3>
+  <p>Tags are removed before the model sees the prompt. A tag must start the prompt or follow a space.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Tag</th><th>Effect</th></tr></thead>
+    <tbody>
+      <tr><td><code>#simple</code> <code>#medium</code> <code>#complex</code></td><td>Force the tier for this prompt. It overrides the sticky rule too.</td></tr>
+      <tr><td><code>#validate</code></td><td>Turn the validator on. Stays on for later prompts. Does nothing on simple, which has no validator.</td></tr>
+      <tr><td><code>#novalidate</code></td><td>Turn the validator off. Stays off.</td></tr>
+      <tr><td><code>#autovalidate</code></td><td>Back to the default: complex only.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="flow">
+  <h2>2. Request flow</h2>
+  <p>Everything starts when you submit a prompt and ends in the hooks that shape each model request.</p>
+  <div class="flow">
+    <div class="step"><span class="n">1</span><b>Prompt submitted</b><p>Slash commands pass through untouched.</p></div>
+    <div class="arrow">↓</div>
+    <div class="step"><span class="n">2</span><b>Parse tags</b> <code>parseTags()</code><p>Pulls out a tier tag and the validation tags. The cleaned text continues.</p></div>
+    <div class="arrow">↓</div>
+    <div class="step"><span class="n">3</span><b>Short follow-up?</b> <code>isFollowUp()</code><p>If the session is already on medium or complex and the prompt is six words or fewer (or was injected by Claude Code), the tier is kept and steps 4 to 6 are skipped.</p></div>
+    <div class="arrow">↓</div>
+    <div class="step"><span class="n">4</span><b>Ask Haiku</b> <code>classify()</code><p>One call with the first 2000 characters, at low effort, through the session's own model access. It returns three scores. If the call fails or the reply does not parse, a keyword check decides instead.</p></div>
+    <div class="arrow">↓</div>
+    <div class="step"><span class="n">5</span><b>Route</b> <code>route()</code><p>Fixed cut-offs turn the three scores into a tier and a band.</p></div>
+    <div class="arrow">↓</div>
+    <div class="step"><span class="n">6</span><b>Sticky rule</b> <code>ratchet()</code><p>In a long conversation the tier can go up but not down. A tier tag skips this.</p></div>
+    <div class="arrow">↓</div>
+    <div class="step"><span class="n">7</span><b>Plan</b> <code>plan()</code><p>Models from <code>TIERS</code>, effort from <code>EFFORT</code>, validator if the tier is complex or <code>#validate</code> is on. The status line shows the plan.</p></div>
+    <div class="arrow">↓ the plan is read by these hooks while the turn runs</div>
+    <div class="fan">
+      <div class="step"><b>prompt.compose</b><p>Adds a system-prompt section (not for simple): delegate to the executor model, re-delegate once to the escalate model after <code>STATUS: FAILED</code>, and run a <code>[verify]</code> agent at the end if a validator is set.</p></div>
+      <div class="step"><b>turn.step</b><p>Main loop: sets the model and effort, and notes how long the conversation is. Subagent: sets effort only (validator effort if its model name matches the validator, otherwise executor effort).</p></div>
+      <div class="step"><b>agent.spawn</b><p>Picks the subagent's model: <code>[verify]</code> prompts get the validator; after an escalation executors are forced to the escalate model; otherwise the call's own model or the executor default. Appends the <code>STATUS</code> or <code>VERDICT</code> rule.</p></div>
+      <div class="step"><b>tool.call</b><p>Watches test commands and subagent results for failure signals. On a failure it sets the escalation flag and adds a note to the result.</p></div>
+      <div class="step"><b>turn.complete</b><p>When the main turn ends, appends one line to the log (<a href="#cascade">section 5</a>).</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="classifier">
+  <h2>3. The evaluator</h2>
+  <p>Claude Haiku reads the prompt and answers three questions in one call. There is nothing to install. Each call uses your own Claude usage: up to about $0.001 per prompt.</p>
+  <div class="grid g3">
+    <div class="card"><h3><code>effort</code></h3><p class="small">Five probabilities, turned into a score from 0 to 4.<br>"How much engineering effort does this coding request need?"</p>
+      <p class="small muted">0 answer or one command · 1 tiny edit · 2 feature or bug fix in a few files · 3 multi-file change with design decisions · 4 large refactor, migration, architecture, deep debugging</p></div>
+    <div class="card"><h3><code>question</code></h3><p class="small">A probability.<br>"The user is only asking a question and wants no code changed."</p></div>
+    <div class="card"><h3><code>repro</code></h3><p class="small">A probability.<br>"The request includes an error message, traceback or steps to reproduce."</p></div>
+  </div>
+
+  <h3>The rule and its cut-offs (<code>CUTS</code>)</h3>
+  <pre><code>CUTS = { question: 0.7, simple: 1.3, complex: 2.4, repro: 0.4, highBand: 3.0 }
+
+question &gt;= 0.7                        -&gt; simple / low
+effort   &lt;  1.3                        -&gt; simple / mid
+effort   &gt;= 2.4  and  repro &lt; 0.4      -&gt; complex  (band high if effort &gt;= 3.0, else mid)
+otherwise                              -&gt; medium / mid</code></pre>
+  <p>A prompt with an error or a repro is a bug report, and bug reports are never routed to complex. Within medium the band is always <code>mid</code>, because nothing in a prompt predicted which bug fixes need a bigger model.</p>
+  <div class="note">These cut-offs were fitted on a 570-prompt set that was later found to reward prompt length (every medium example in it was a long GitHub issue). Treat them as starting values. No accuracy figure from that set is quoted here.</div>
+
+  <h3>Try the rule</h3>
+  <p class="small muted">A copy of <code>route()</code>, <code>ratchet()</code> and the plan, with the same numbers. It does not call Haiku.</p>
+  <div class="card" id="route-demo">
+    <div class="ctl"><label for="r-effort">effort score</label><input id="r-effort" type="range" min="0" max="4" step="0.1" value="2"><output id="o-effort"></output></div>
+    <div class="ctl"><label for="r-question">question</label><input id="r-question" type="range" min="0" max="1" step="0.05" value="0.1"><output id="o-question"></output></div>
+    <div class="ctl"><label for="r-repro">repro</label><input id="r-repro" type="range" min="0" max="1" step="0.05" value="0.6"><output id="o-repro"></output></div>
+    <div class="ctl"><label for="r-prev">session so far</label><select id="r-prev"><option value="">new or short conversation</option><option value="simple">long, on simple</option><option value="medium">long, on medium</option><option value="complex">long, on complex</option></select><span></span></div>
+    <div class="ctl"><label for="r-tag">validation tag</label><select id="r-tag"><option value="auto">none (default)</option><option value="yes">#validate</option><option value="no">#novalidate</option></select><span></span></div>
+    <div id="route-out" aria-live="polite" style="margin-top:10px"></div>
+  </div>
+
+  <h3>How long it takes</h3>
+  <p>Called through the <code>claude</code> command line, the evaluator took about 5 s. About 1.7 s of that was command-line start-up and about 0.75 s was the model call; the rest was the command line's own context and thinking. The plugin calls Haiku directly at low effort, which should land near 1 s. That has not been timed in a live session.</p>
+</section>
+
+<section id="sticky">
+  <h2>4. The tier is sticky within a session</h2>
+  <p>Changing the main model in the middle of a conversation abandons that conversation's prompt cache, so the whole history is read again at full price on the new model. Going down a tier and coming back up pays that twice. So the router avoids needless switches:</p>
+  <ul class="tight">
+    <li><b>Up is allowed, down is not</b>, once the main loop's last request held six messages or more. In a shorter conversation the tier moves freely.</li>
+    <li><b>A short follow-up keeps the tier.</b> "continue" or "now add tests" says little about difficulty, so the evaluator is not asked at all. That also saves its wait.</li>
+    <li><b>In a simple session, short follow-ups are still classified</b>, so "now add tests" after a question can move up.</li>
+    <li><b>The same tier keeps its band</b>, so effort does not flip between prompts.</li>
+    <li>The status line shows <code>(kept)</code>. A tier tag always wins, and <code>/clear</code> starts afresh.</li>
+  </ul>
+  <div class="note">The two thresholds (six messages, six words) are hand picks, not fitted. The worked example behind this rule: with 100,000 tokens of history at API prices, a step on Opus with a warm cache costs about $0.02, and coming back to Opus after its cache has gone costs about $0.50. That assumes caches are kept per model, which Anthropic's page does not state outright.</div>
+</section>
+
+<section id="cascade">
+  <h2>5. The cascade</h2>
+  <p>On medium and complex the router starts with a cheaper executor and moves to Opus only after a failure. It looks for failure without paying for an extra model call.</p>
+
+  <h3>The reporting lines</h3>
+  <ul class="tight">
+    <li>Every executor prompt gets a rule appended: end with <code>STATUS: DONE</code> (only if a test or another concrete check ran and passed) or <code>STATUS: FAILED: &lt;what is wrong or unverified&gt;</code>.</li>
+    <li>Verifier prompts end with <code>VERDICT: PASS</code> or <code>VERDICT: FAIL: &lt;issues&gt;</code>.</li>
+    <li>Only an explicit <code>FAILED</code> or <code>FAIL</code> counts. A search-only agent that says neither triggers nothing.</li>
+  </ul>
+
+  <h3>The three free signals</h3>
+  <div class="grid g3">
+    <div class="card"><h3>status</h3><p class="small">The subagent's result contains <code>STATUS: FAILED</code>.</p></div>
+    <div class="card"><h3>test</h3><p class="small">The last test command run during the attempt (pytest, jest, cargo test, go test, npm test and others) returned an error.</p></div>
+    <div class="card"><h3>verdict</h3><p class="small">The <code>[verify]</code> agent's result contains <code>VERDICT: FAIL</code>. A verifier is judged by its verdict only.</p></div>
+  </div>
+
+  <h3>What happens on a failure</h3>
+  <ol class="tight">
+    <li>An escalation flag is set, <b>at most once per prompt</b>.</li>
+    <li>Every later executor for this prompt is forced to the escalate model (opus).</li>
+    <li>A note is added to the failed result: delegate the fix once more, pass on the failure details, and do not escalate again.</li>
+    <li>The status line shows <code>(escalated)</code>.</li>
+  </ol>
+  <div class="note bad">Why not a paid reviewer on every task? In the SWE-bench data, an Opus review pass on every medium task made the cascade cost more than using Opus for everything.</div>
+
+  <h3>The log</h3>
+  <p>After each routed prompt, one line is appended to <code>~/.claude-router/log.jsonl</code>: the tier, whether Haiku, the keyword check, a tag or the sticky rule decided, how many subagents and test commands ran, which signal escalated, and what the retry reported. It holds counts only, never prompt text, and stays on your Mac. <code>ROUTER_LOG=0</code> turns it off.</p>
+  <p><code>node eval/catch-rate.mjs</code> summarises it. It exists to measure how often the router notices a failed cheap attempt. A failure with no failing test leaves no trace, so the catch rate it prints is an upper bound.</p>
+</section>
+
+<section id="evidence">
+  <h2>6. The evidence</h2>
+
+  <h3>Cost on 500 SWE-bench Verified issues</h3>
+  <p>Real per-task cost and pass or fail for Claude 4.5 Haiku, Sonnet and Opus, from public runs (one agent working alone, effort high, one attempt each, API prices).</p>
+  <div class="bars" id="cost-bars"></div>
+  <p class="small muted">The router row is a simulation over that data: simple prompts on Haiku, medium on Haiku with an Opus retry when a failure is caught, complex on Opus plus a review pass priced at 30% of an Opus run. Haiku's own evaluator calls are included. Haiku sent 43 of the 500 issues to simple, 447 to medium and 9 to complex.</p>
+
+  <h3>What does the catch rate change?</h3>
+  <p>The router only retries failures its free signals notice. That share is <b>not measured</b>, so the simulation was run at 40% and at 80%, with 10% false alarms. Drag to see the range between.</p>
+  <div class="card">
+    <div class="ctl"><label for="catch">failures caught</label><input id="catch" type="range" min="40" max="80" step="1" value="60"><output id="o-catch"></output></div>
+    <div class="big" aria-live="polite">
+      <div><b id="x-solved"></b><span>solved</span></div>
+      <div><b id="x-cost"></b><span>cost, 500 issues</span></div>
+      <div><b id="x-vs-opus"></b><span>cheaper than always Opus ($377)</span></div>
+      <div><b id="x-pts"></b><span>solve rate against Opus (76.8%)</span></div>
+    </div>
+    <p class="small muted" style="margin:0">Only the two ends were run (71.2% for $256, and 75.7% for $318). The simulation is linear in the catch rate, so the points between are a straight line.</p>
+  </div>
+  <div class="note">These figures leave out the main loop. The plugin's medium tier runs a Haiku main loop over Haiku subagents, and that orchestration is not in the data. One estimate, which assumes the main loop adds 15 to 50% of a Haiku run and 80% of failures are caught, puts it at $350 to $408, against $377 for Opus. So the real saving on medium work may be small.</div>
+
+  <h3>Findings that shaped the design</h3>
+  <ul class="tight">
+    <li><b>Nothing in a bug-fix prompt predicted which fixes Haiku fails</b> (AUC 0.47 to 0.56, close to a coin flip), and human difficulty labels did no better. So medium is not split further, and failures are caught afterwards.</li>
+    <li>Prompt length is not difficulty: long prompts were mostly detailed bug reports.</li>
+    <li>Sonnet cost 87% of Opus per task and solved fewer (71.4% against 76.8%).</li>
+  </ul>
+
+  <h3>400 real prompts from coding-agent sessions</h3>
+  <p>A sample from SWE-chat, a public dataset of real sessions: 200 first prompts and 200 follow-ups typed into Claude Code. It has no simple, medium or complex labels, so Haiku's scores are compared with what happened after each prompt.</p>
+  <div class="scroll"><table>
+    <thead><tr><th>Does the score track the number of tool calls that followed?</th><th class="num">All 400</th><th class="num">First prompts</th><th class="num">Follow-ups</th></tr></thead>
+    <tbody>
+      <tr><td>Word count alone</td><td class="num">0.32</td><td class="num">0.35</td><td class="num">0.08</td></tr>
+      <tr class="hit"><td>Haiku's effort score</td><td class="num">0.46</td><td class="num">0.47</td><td class="num">0.28</td></tr>
+    </tbody>
+  </table></div>
+  <p class="small muted">Rank correlation: 0 is none, 1 is perfect.</p>
+  <ul class="tight">
+    <li>Haiku's "only a question" score picks out prompts that led to no edits or commands (AUC 0.74).</li>
+    <li>"Simple" still often means work: 65% of the prompts Haiku called simple were followed by edits or commands.</li>
+    <li>79% of follow-ups of six words or fewer led to edits or commands, and Haiku would have called 68% of them simple. This is the case the sticky rule covers.</li>
+    <li>The prompt did not predict whether the user's next message was a correction or failure report (AUC 0.47), the same result as on SWE-bench.</li>
+  </ul>
+
+  <h3>Tests</h3>
+  <p>27 tests run against Claude Code's plugin test kit (<code>claude plugin test .</code>). In that kit every model call and tool result is a stand-in, so the tests show the hooks handle the inputs they are given, not that Claude Code sends those inputs.</p>
+</section>
+
+<section id="caveats">
+  <h2>7. Caveats and open questions</h2>
+  <ul class="tight">
+    <li><b>Not yet run in a live Claude Code session.</b> Unconfirmed: that subagents' test commands reach the hook, the exact form of a subagent result, and that the Haiku call works from inside the plugin.</li>
+    <li><b>The catch rate is unmeasured.</b> Every savings figure depends on it. The log is there to measure it.</li>
+    <li><b>The orchestration is not priced.</b> The cost data is one agent working alone.</li>
+    <li><b>The cut-offs are starting values</b>, fitted on a set that rewarded prompt length.</li>
+    <li><b>The cost data is from Claude 4.5 models</b>, one run per task. The plugin uses whatever <code>haiku</code>, <code>sonnet</code>, <code>opus</code> and <code>fable</code> resolve to today.</li>
+    <li><b>API dollars are not subscription usage.</b> Whether subscription limits count cached reads the way API prices do is unknown, and the sticky rule rests on that.</li>
+    <li><b>The SWE-chat comparison uses a stand-in for difficulty.</b> Tool-call counts depend on the model and the session, not only on the prompt, and it is one sample of 400.</li>
+    <li><b>If the Haiku call fails</b>, a keyword check decides, which is cruder.</li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  Describes the Haiku-only router: tier table, sticky rule and log as of commit <code>a6711cb</code> of <code>gamparohit/claude-router</code>. This page does not update itself. No network requests; everything is inline.
+</footer>
+
+<script>
+(function () {
+  var TIERS = {
+    simple:  { main: 'haiku', executor: 'sonnet', validator: null,    escalate: null },
+    medium:  { main: 'haiku', executor: 'haiku',  validator: 'opus',  escalate: 'opus' },
+    complex: { main: 'opus',  executor: 'sonnet', validator: 'fable', escalate: 'opus' }
+  };
+  var EFFORT = {
+    simple:  { low: ['low','low','low'],        mid: ['medium','medium','medium'], high: ['high','high','high'] },
+    medium:  { low: ['low','low','medium'],     mid: ['medium','medium','medium'], high: ['high','high','high'] },
+    complex: { low: ['medium','medium','high'], mid: ['high','high','high'],       high: ['xhigh','high','xhigh'] }
+  };
+  var CUTS = { question: 0.7, simple: 1.3, complex: 2.4, repro: 0.4, highBand: 3.0 };
+  var RANK = ['simple', 'medium', 'complex'];
+  var REACHABLE = { 'simple/low': 1, 'simple/mid': 1, 'medium/mid': 1, 'complex/mid': 1, 'complex/high': 1 };
+  function route(a) {
+    if (a.question >= CUTS.question) return { tier: 'simple', band: 'low' };
+    if (a.effort < CUTS.simple) return { tier: 'simple', band: 'mid' };
+    if (a.effort >= CUTS.complex && a.repro < CUTS.repro) return { tier: 'complex', band: a.effort >= CUTS.highBand ? 'high' : 'mid' };
+    return { tier: 'medium', band: 'mid' };
+  }
+  function $(id) { return document.getElementById(id); }
+  function el(tag, cls, html) { var e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
+
+  var tb = document.querySelector('#effort-table tbody');
+  RANK.forEach(function (t) {
+    ['low', 'mid', 'high'].forEach(function (b, i) {
+      var r = EFFORT[t][b], tr = document.createElement('tr');
+      if (REACHABLE[t + '/' + b]) tr.className = 'hit';
+      tr.innerHTML = (i === 0 ? '<td rowspan="3"><span class="tag t-' + t + '">' + t + '</span></td>' : '') +
+        '<td>' + b + '</td><td>' + r[0] + '</td><td>' + (t === 'simple' ? '<span class="muted">n/a</span>' : r[1]) + '</td><td>' + (t === 'simple' ? '<span class="muted">n/a</span>' : r[2]) + '</td>';
+      tb.appendChild(tr);
+    });
+  });
+
+  function demo() {
+    var a = { effort: +$('r-effort').value, question: +$('r-question').value, repro: +$('r-repro').value };
+    $('o-effort').textContent = a.effort.toFixed(1);
+    $('o-question').textContent = a.question.toFixed(2);
+    $('o-repro').textContent = a.repro.toFixed(2);
+    var fresh = route(a), prev = $('r-prev').value, r = fresh, held = false;
+    // In the plugin a kept tier also keeps its earlier band; the demo has no earlier band, so it shows mid.
+    if (prev && RANK.indexOf(fresh.tier) <= RANK.indexOf(prev)) { held = fresh.tier !== prev; r = fresh.tier === prev ? fresh : { tier: prev, band: 'mid' }; }
+    var T = TIERS[r.tier], E = EFFORT[r.tier][r.band], tag = $('r-tag').value;
+    var forced = tag === 'yes' ? true : tag === 'no' ? false : null;
+    var val = (forced === null ? r.tier === 'complex' : forced) ? T.validator : null;
+    var why;
+    if (a.question >= CUTS.question) why = 'question ≥ ' + CUTS.question + ': only a question.';
+    else if (a.effort < CUTS.simple) why = 'effort < ' + CUTS.simple + ': small.';
+    else if (a.effort >= CUTS.complex && a.repro < CUTS.repro) why = 'effort ≥ ' + CUTS.complex + ' and repro < ' + CUTS.repro + ': design work, not a bug report.';
+    else why = a.effort >= CUTS.complex ? 'effort is high but repro ≥ ' + CUTS.repro + ': it reads as a bug report, so medium.' : 'effort between ' + CUTS.simple + ' and ' + CUTS.complex + ': ordinary work.';
+    var lines = [
+      'Haiku\'s scores say <b><span class="tag t-' + fresh.tier + '">' + fresh.tier + '</span></b> <span class="muted small">' + why + '</span>',
+      held ? 'The session runs it as <b><span class="tag t-' + r.tier + '">' + r.tier + '</span> (kept)</b> <span class="muted small">a long conversation does not move down a tier.</span>' : '',
+      'main: <code>' + T.main + ':' + E[0] + '</code>' + (r.tier === 'simple' ? '' : ' &nbsp; executor: <code>' + T.executor + ':' + E[1] + '</code> &nbsp; after a failure: <code>' + T.escalate + '</code>'),
+      'validator: ' + (val ? '<code>' + val + ':' + E[2] + '</code>' : '<span class="muted">off</span>') + (r.tier === 'simple' && forced ? ' <span class="muted small">(#validate does nothing on simple)</span>' : '')
+    ];
+    $('route-out').innerHTML = lines.filter(Boolean).map(function (l) { return '<div>' + l + '</div>'; }).join('');
+  }
+  ['r-effort', 'r-question', 'r-repro', 'r-prev', 'r-tag'].forEach(function (id) { $(id).addEventListener('input', demo); });
+  demo();
+
+  var MAX = 400;
+  function bar(container, label, sub, lo, hi, cls, valText) {
+    var row = el('div', 'bar-row ' + (cls || ''));
+    var tr = el('div', 'track');
+    var ext = el('div', 'ext'); ext.style.width = (hi / MAX * 100) + '%'; if (hi === lo) ext.style.display = 'none';
+    var f = el('div', 'fill'); f.style.width = (lo / MAX * 100) + '%';
+    tr.appendChild(ext); tr.appendChild(f); tr.appendChild(el('span', 'val', valText));
+    row.appendChild(el('div', 'bar-label', label + '<small>' + sub + '</small>')); row.appendChild(tr); container.appendChild(row);
+  }
+  var cb = $('cost-bars');
+  bar(cb, 'Haiku for everything', '66.6% solved', 165, 165, '', '$165');
+  bar(cb, 'Sonnet for everything', '71.4% solved', 329, 329, '', '$329');
+  bar(cb, 'Opus for everything', '76.8% solved', 377, 377, '', '$377');
+  bar(cb, 'Router (simulated)', '71.2 to 75.7% solved', 256, 318, 'shipped', '$256 to $318');
+
+  function slide() {
+    var c = +$('catch').value, t = (c - 40) / 40;
+    var solved = 71.2 + t * (75.7 - 71.2), cost = 256 + t * (318 - 256);
+    $('o-catch').textContent = c + '%';
+    $('x-solved').textContent = solved.toFixed(1) + '%';
+    $('x-cost').textContent = '$' + Math.round(cost);
+    $('x-vs-opus').textContent = Math.round((1 - cost / 377) * 100) + '%';
+    $('x-pts').textContent = (76.8 - solved).toFixed(1) + ' pts lower';
+  }
+  $('catch').addEventListener('input', slide);
+  slide();
+})();
+</script>
+</body>
+</html>

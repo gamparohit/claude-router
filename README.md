@@ -44,7 +44,7 @@ Add tags anywhere in a prompt (they are removed before the model sees it):
 - A follow-up of six words or fewer ("continue", "now add tests") keeps the current tier and skips the evaluator, unless the session is on the simple tier.
 - The status line shows `(kept)` when this happens. A `#simple`, `#medium` or `#complex` tag always wins, and `/clear` starts afresh.
 
-Defaults live in `logic.ts` (`TIERS`, `EFFORT`, `CUTS`).
+Defaults live in `logic.ts` (`TIERS`, `EFFORT`, `CUTS`). Open `docs/router-explainer.html` in a browser for a walkthrough with diagrams.
 
 ## The log
 
