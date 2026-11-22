@@ -55,6 +55,12 @@ Add tags anywhere in a prompt (they are removed before the model sees it):
 
 Defaults live in `logic.ts` (`TIERS`, `EFFORT`, `EVALUATORS`, `DEFAULT_EVALUATOR`). Open `docs/router-explainer.html` for a walkthrough of the router (written before the evaluators were added, so it covers Laya only).
 
+## The log
+
+After each routed prompt the plugin appends one line to `~/.claude-router/log.jsonl`: the tier, the evaluator, how many subagents and test commands ran, whether the router escalated and on which signal. It holds counts only, never your prompt text, and stays on your Mac. Set `ROUTER_LOG=0` in your environment to turn it off.
+
+`node eval/catch-rate.mjs` summarises it. The point is to measure how often the router notices a failed cheap attempt, which the savings figures above only assume. It can only count a miss when a test command failed and nothing escalated, so the catch rate it prints is an upper bound.
+
 ## Status
 
 Early. The classifier rules and cost estimates come from an evaluation on SWE-bench Verified with Claude 4.5 models. The hooks are covered by tests that run against Claude Code's plugin test kit (`claude plugin test .`), where every model call and tool result is a stub. They have not yet been verified in a live Claude Code session; in particular the Haiku evaluator's model call has not run inside Claude Code. Please report what you see.

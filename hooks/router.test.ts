@@ -17,6 +17,7 @@ function host(on: any, haiku: string | null = COMPLEX) {
   on('prompt.compose', () => ({ sections: [{ id: 'intro', text: 'x', scope: 'shared' }] }))
   on('turn.step', async function* (_: any, e: any) { h.steps.push(e); return { turnId: 't', index: 0, answer: '', toolUses: [], stopReason: 'end_turn', usage: null } })
   on('agent.spawn', (_: any, e: any) => { h.spawns.push(e); return { model: e.model } })
+  on('turn.complete', (_: any, e: any) => ({ text: e.answer }))
   on('tool.call', async (_: any, e: any) => (e.tool === 'Bash' ? h.bash : typeof h.agent === 'function' ? h.agent() : h.agent))
   return h
 }
@@ -25,6 +26,7 @@ const step = async ($: any, extra = {}) => { for await (const _ of $.turn.step({
 const spawn = ($: any, extra = {}) => $.agent.spawn({ tool_use_id: 'x', prompt: 'fix it', description: 'd', subagentType: 'general-purpose', provider: { plugin: 'engine', tier: 'core' }, parentModel: 'opus', ...extra })
 const agent = ($: any, prompt = 'fix it') => $.tool.call({ tool: 'Agent', prompt, description: 'd' })
 const last = (a: any[]) => a[a.length - 1]
+const complete = ($: any, extra = {}) => $.turn.complete({ answer: 'done', durationMs: 1234, isAborted: false, turnId: 't', reason: 'answer', ...extra })
 
 test('haiku evaluator sets the tier and the status line', async ($, on) => {
   const h = host(on)
@@ -138,4 +140,40 @@ test('VERDICT: FAIL from the verifier escalates', async ($, on) => {
   await submit($, 'redo the storage layer')
   h.agent = { result: 'looked\nVERDICT: FAIL: race in the writer' }
   expect(JSON.stringify(await agent($, '[verify] check the diff'))).toContain('[router]')
+})
+
+const logged = (h: any) => h.runs.filter((r: any) => r.init?.stdin).map((r: any) => JSON.parse(r.init.stdin))
+
+test('log: one line per routed prompt at the end of the main turn, counts only', async ($, on) => {
+  const h = host(on, MEDIUM)
+  await submit($, 'parser crashes on empty input')
+  h.agent = async () => { await $.tool.call({ tool: 'Bash', command: 'npm test' }); return DONE }
+  await agent($)
+  await complete($, { agentId: 'a1' }) // a subagent's turn does not flush
+  expect(logged(h).length).toBe(0)
+  await complete($)
+  await complete($) // nothing left to write
+  expect(logged(h).length).toBe(1)
+  const r = logged(h)[0]
+  expect({ ...r, t: '' }).toEqual({ t: '', evaluator: 'haiku', via: 'evaluator', tier: 'medium', band: 'mid', words: 5, agents: 1, done: 1, failed: 0,
+    tests: 1, testsFailed: 0, lastTestFailed: false, escalated: null, retry: null, reason: 'answer', ms: 1234 })
+  expect(JSON.stringify(last(h.runs))).not.toContain('parser')
+})
+
+test('log: records which signal escalated and what the retry reported', async ($, on) => {
+  const h = host(on, MEDIUM)
+  await submit($, 'parser crashes on empty input')
+  h.agent = FAILED; await agent($)
+  h.agent = DONE; await agent($)
+  await complete($)
+  const r = logged(h)[0]
+  expect([r.agents, r.failed, r.done, r.escalated, r.retry]).toEqual([2, 1, 0, 'status', 'done'])
+})
+
+test('log: says when the keyword fallback or a tag decided, and skips slash commands', async ($, on) => {
+  const h = host(on, null)
+  await submit($, 'what does ls -la do?'); await complete($)
+  await submit($, '#medium tidy the readme'); await complete($)
+  await submit($, '/help', { command: { name: 'help', args: '' } }); await complete($)
+  expect(logged(h).map((r: any) => r.via)).toEqual(['fallback', 'tag'])
 })

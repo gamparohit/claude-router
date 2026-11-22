@@ -23,6 +23,27 @@ export const VERDICT_RULE = '\n\nEnd your reply with exactly one line: "VERDICT:
 /** Only an explicit FAILED counts: search-only agents never say DONE and must not trigger escalation. */
 export const executorFailed = (reply: string) => /STATUS:\s*FAILED/i.test(reply)
 export const validatorFailed = (reply: string) => /VERDICT:\s*FAIL/i.test(reply)
+export const executorDone = (reply: string) => /STATUS:\s*DONE/i.test(reply)
+/** Which free signal, if any, says this Agent call failed. A verifier is judged by its VERDICT only. */
+export type Signal = 'status' | 'test' | 'verdict'
+export function failureSignal(reply: string, isVerify: boolean, lastTestFailed: boolean): Signal | null {
+  if (isVerify) return validatorFailed(reply) ? 'verdict' : null
+  return executorFailed(reply) ? 'status' : lastTestFailed ? 'test' : null
+}
+
+// One line per routed prompt goes to ~/.claude-router/log.jsonl (ROUTER_LOG=0 turns it off): counts only, never prompt
+// text. It exists to measure the catch rate the savings estimates assume; eval/catch-rate.mjs summarises it.
+export type LogRecord = {
+  t: string; evaluator: string; via: 'evaluator' | 'fallback' | 'tag'; tier: Tier; band: Band; words: number
+  agents: number; done: number; failed: number // Agent calls, and their STATUS lines before any escalation
+  tests: number; testsFailed: number; lastTestFailed: boolean | null // test commands seen (null = none ran)
+  escalated: Signal | null; retry: 'done' | 'failed' | null // which signal escalated, and what the retry reported
+  reason?: string; ms?: number
+}
+export const newLogRecord = (t: string, evaluator: string, via: LogRecord['via'], tier: Tier, band: Band, text: string): LogRecord => ({
+  t, evaluator, via, tier, band, words: text.trim().split(/\s+/).filter(Boolean).length,
+  agents: 0, done: 0, failed: 0, tests: 0, testsFailed: 0, lastTestFailed: null, escalated: null, retry: null,
+})
 /** Verifier spawns are tagged "[verify]" by the policy text; model names can't tell them apart when
  * validator and escalate are the same model (medium: opus/opus). */
 export const isVerifyPrompt = (prompt: unknown) => typeof prompt === 'string' && /^\s*\[verify\]/i.test(prompt)

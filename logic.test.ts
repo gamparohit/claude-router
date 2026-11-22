@@ -2,7 +2,7 @@
 import { expect, test } from 'claude-code/testing'
 import {
   DEFAULT_EVALUATOR, EFFORT, EVALUATORS, TIERS, executorFailed, heuristic, heuristicBand, heuristicNeedsValidation,
-  isTestCommand, isVerifyPrompt, parseHaikuAnswers, parseTags, route, validatorFailed,
+  failureSignal, isTestCommand, isVerifyPrompt, newLogRecord, parseHaikuAnswers, parseTags, route, validatorFailed,
 } from './logic'
 
 test('tags', () => {
@@ -44,6 +44,12 @@ test('failure signals', () => {
   expect(isTestCommand('ls -la')).toBe(false)
   expect(isVerifyPrompt('[verify] check the diff')).toBe(true)
   expect(isVerifyPrompt('fix the bug')).toBe(false)
+  expect(failureSignal('STATUS: FAILED: red', false, true)).toBe('status')
+  expect(failureSignal('STATUS: DONE', false, true)).toBe('test') // said done, but its last test run failed
+  expect(failureSignal('STATUS: DONE', false, false)).toBe(null)
+  expect(failureSignal('STATUS: FAILED\nVERDICT: PASS', true, true)).toBe(null) // a verifier is judged by its verdict only
+  expect(failureSignal('VERDICT: FAIL: race', true, false)).toBe('verdict')
+  expect(newLogRecord('t', 'haiku', 'evaluator', 'medium', 'mid', '  fix   the parser ').words).toBe(3)
 })
 
 test('haiku reply parsing', () => {
